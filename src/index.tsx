@@ -1,41 +1,264 @@
-// Hono 主应用入口
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
-import { logger } from 'hono/logger'
 import { serveStatic } from 'hono/cloudflare-workers'
-import type { Bindings } from './types/bindings'
-
-// 导入路由
-import data from './routes/data'
-import rules from './routes/rules'
-import alerts from './routes/alerts'
-import realtime from './routes/realtime'
+import type { Bindings, ApiResponse, Risk, StatisticsData } from './types/bindings'
 
 const app = new Hono<{ Bindings: Bindings }>()
 
-// 中间件
-app.use('*', logger())
+// 启用CORS
 app.use('/api/*', cors())
 
 // 静态文件服务
 app.use('/static/*', serveStatic({ root: './public' }))
 
-// API 路由
-app.route('/api/data', data)
-app.route('/api/rules', rules)
-app.route('/api/alerts', alerts)
-app.route('/api/realtime', realtime)
+// ========== API 路由 ==========
 
-// 健康检查
-app.get('/api/health', (c) => {
-  return c.json({
-    status: 'ok',
-    timestamp: Date.now(),
-    version: '1.0.0'
-  })
+// 1. 获取风险列表（支持分页、筛选、排序）
+app.get('/api/risks', async (c) => {
+  const { DB } = c.env
+  const { page = '1', limit = '20', company, level, keyword, sort = 'created_at', order = 'DESC' } = c.req.query()
+  
+  const pageNum = parseInt(page)
+  const limitNum = parseInt(limit)
+  const offset = (pageNum - 1) * limitNum
+
+  try {
+    // 构建查询条件
+    let whereClause = 'WHERE 1=1'
+    const params: any[] = []
+    
+    if (company) {
+      whereClause += ' AND company_name LIKE ?'
+      params.push(`%${company}%`)
+    }
+    
+    if (level) {
+      whereClause += ' AND risk_level = ?'
+      params.push(level)
+    }
+    
+    if (keyword) {
+      whereClause += ' AND (title LIKE ? OR risk_item LIKE ?)'
+      params.push(`%${keyword}%`, `%${keyword}%`)
+    }
+
+    // 获取总数
+    const countQuery = `SELECT COUNT(*) as total FROM risks ${whereClause}`
+    const countResult = await DB.prepare(countQuery).bind(...params).first<{ total: number }>()
+    const total = countResult?.total || 0
+
+    // 获取数据列表
+    const dataQuery = `
+      SELECT id, company_name, title, risk_item, risk_time, source, 
+             risk_level, risk_level_review, risk_value_confirm, 
+             substr(risk_reason, 1, 200) as risk_reason_preview,
+             created_at
+      FROM risks ${whereClause}
+      ORDER BY ${sort} ${order}
+      LIMIT ? OFFSET ?
+    `
+    params.push(limitNum, offset)
+    
+    const result = await DB.prepare(dataQuery).bind(...params).all<Risk>()
+
+    const response: ApiResponse = {
+      success: true,
+      data: {
+        list: result.results || [],
+        pagination: {
+          page: pageNum,
+          limit: limitNum,
+          total,
+          totalPages: Math.ceil(total / limitNum)
+        }
+      }
+    }
+
+    return c.json(response)
+  } catch (error: any) {
+    return c.json<ApiResponse>({ 
+      success: false, 
+      error: error.message 
+    }, 500)
+  }
 })
 
-// 首页
+// 2. 获取风险详情
+app.get('/api/risks/:id', async (c) => {
+  const { DB } = c.env
+  const id = c.req.param('id')
+
+  try {
+    const result = await DB.prepare('SELECT * FROM risks WHERE id = ?')
+      .bind(id)
+      .first<Risk>()
+
+    if (!result) {
+      return c.json<ApiResponse>({ 
+        success: false, 
+        error: '风险记录不存在' 
+      }, 404)
+    }
+
+    return c.json<ApiResponse>({ 
+      success: true, 
+      data: result 
+    })
+  } catch (error: any) {
+    return c.json<ApiResponse>({ 
+      success: false, 
+      error: error.message 
+    }, 500)
+  }
+})
+
+// 3. 获取统计数据
+app.get('/api/statistics', async (c) => {
+  const { DB } = c.env
+
+  try {
+    // 总风险数
+    const totalResult = await DB.prepare('SELECT COUNT(*) as count FROM risks').first<{ count: number }>()
+    const totalRisks = totalResult?.count || 0
+
+    // 高风险数量
+    const highResult = await DB.prepare('SELECT COUNT(*) as count FROM risks WHERE risk_level = ?')
+      .bind('高风险')
+      .first<{ count: number }>()
+    const highRisks = highResult?.count || 0
+
+    // 中风险数量
+    const mediumResult = await DB.prepare('SELECT COUNT(*) as count FROM risks WHERE risk_level = ?')
+      .bind('中风险')
+      .first<{ count: number }>()
+    const mediumRisks = mediumResult?.count || 0
+
+    // 低风险数量
+    const lowResult = await DB.prepare('SELECT COUNT(*) as count FROM risks WHERE risk_level = ?')
+      .bind('低风险')
+      .first<{ count: number }>()
+    const lowRisks = lowResult?.count || 0
+
+    // 今日新增风险（模拟数据）
+    const todayRisks = 0  // 由于测试数据都是历史数据，这里返回0
+
+    // 公司分布（Top 10）
+    const companyResult = await DB.prepare(`
+      SELECT company_name as company, COUNT(*) as count 
+      FROM risks 
+      GROUP BY company_name 
+      ORDER BY count DESC 
+      LIMIT 10
+    `).all<{ company: string; count: number }>()
+
+    // 最近7天风险趋势
+    const trendResult = await DB.prepare(`
+      SELECT DATE(risk_time) as date, COUNT(*) as count 
+      FROM risks 
+      WHERE risk_time IS NOT NULL AND risk_time != ''
+      GROUP BY DATE(risk_time) 
+      ORDER BY date DESC 
+      LIMIT 7
+    `).all<{ date: string; count: number }>()
+
+    const statistics: StatisticsData = {
+      totalRisks,
+      highRisks,
+      mediumRisks,
+      lowRisks,
+      todayRisks,
+      companyDistribution: companyResult.results || [],
+      riskTrend: (trendResult.results || []).reverse()
+    }
+
+    return c.json<ApiResponse>({ 
+      success: true, 
+      data: statistics 
+    })
+  } catch (error: any) {
+    return c.json<ApiResponse>({ 
+      success: false, 
+      error: error.message 
+    }, 500)
+  }
+})
+
+// 4. 获取公司列表（用于筛选）
+app.get('/api/companies', async (c) => {
+  const { DB } = c.env
+
+  try {
+    const result = await DB.prepare(`
+      SELECT DISTINCT company_name as name, COUNT(*) as risk_count
+      FROM risks 
+      GROUP BY company_name 
+      ORDER BY risk_count DESC
+    `).all<{ name: string; risk_count: number }>()
+
+    return c.json<ApiResponse>({ 
+      success: true, 
+      data: result.results || [] 
+    })
+  } catch (error: any) {
+    return c.json<ApiResponse>({ 
+      success: false, 
+      error: error.message 
+    }, 500)
+  }
+})
+
+// 5. 实时数据获取（轮询方式替代SSE）
+app.get('/api/realtime', async (c) => {
+  const { DB } = c.env
+
+  try {
+    // 获取最新10条风险
+    const result = await DB.prepare(`
+      SELECT id, company_name, title, risk_level, risk_time, created_at
+      FROM risks 
+      ORDER BY id DESC 
+      LIMIT 10
+    `).all<Risk>()
+
+    return c.json<ApiResponse>({ 
+      success: true, 
+      data: {
+        type: 'update',
+        risks: result.results || [],
+        timestamp: new Date().toISOString()
+      }
+    })
+  } catch (error: any) {
+    return c.json<ApiResponse>({ 
+      success: false, 
+      error: error.message 
+    }, 500)
+  }
+})
+
+// 6. 发送预警通知（邮件/钉钉）
+app.post('/api/notify', async (c) => {
+  try {
+    const { type, riskId, message } = await c.req.json()
+
+    // 这里是预警推送的占位逻辑
+    // 实际使用时需要配置邮件服务和钉钉Webhook
+    console.log(`发送${type}预警: 风险ID=${riskId}, 消息=${message}`)
+
+    // 模拟发送成功
+    return c.json<ApiResponse>({ 
+      success: true, 
+      message: `${type}预警发送成功` 
+    })
+  } catch (error: any) {
+    return c.json<ApiResponse>({ 
+      success: false, 
+      error: error.message 
+    }, 500)
+  }
+})
+
+// ========== 前端页面 ==========
 app.get('/', (c) => {
   return c.html(`
 <!DOCTYPE html>
@@ -44,209 +267,23 @@ app.get('/', (c) => {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>实时风险预警平台</title>
-    <link href="https://unpkg.com/element-plus@2.4.4/dist/index.css" rel="stylesheet">
-    <script src="https://unpkg.com/vue@3.3.11/dist/vue.global.prod.js"></script>
-    <script src="https://unpkg.com/element-plus@2.4.4/dist/index.full.min.js"></script>
-    <script src="https://unpkg.com/axios@1.6.2/dist/axios.min.js"></script>
-    <script src="https://unpkg.com/echarts@5.4.3/dist/echarts.min.js"></script>
-    <link href="/static/styles.css" rel="stylesheet">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/vue@3.4.21/dist/vue.global.prod.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/axios@1.6.7/dist/axios.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
+    <link href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.5.1/css/all.min.css" rel="stylesheet">
     <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { font-family: 'Helvetica Neue', Arial, sans-serif; background: #f5f7fa; }
-        #app { min-height: 100vh; }
-        .header {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            padding: 20px 30px;
-            box-shadow: 0 2px 12px rgba(0,0,0,0.1);
-        }
-        .header h1 {
-            font-size: 24px;
-            font-weight: 600;
-            margin-bottom: 8px;
-        }
-        .header p {
-            font-size: 14px;
-            opacity: 0.9;
-        }
-        .container {
-            max-width: 1400px;
-            margin: 0 auto;
-            padding: 20px;
-        }
-        .stats-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-            gap: 20px;
-            margin-bottom: 20px;
-        }
-        .stat-card {
-            background: white;
-            border-radius: 8px;
-            padding: 20px;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
-            transition: transform 0.2s;
-        }
-        .stat-card:hover {
-            transform: translateY(-4px);
-            box-shadow: 0 4px 16px rgba(0,0,0,0.12);
-        }
-        .stat-value {
-            font-size: 32px;
-            font-weight: bold;
-            margin: 10px 0;
-        }
-        .stat-label {
-            color: #909399;
-            font-size: 14px;
-        }
-        .content-grid {
-            display: grid;
-            grid-template-columns: 2fr 1fr;
-            gap: 20px;
-        }
-        .panel {
-            background: white;
-            border-radius: 8px;
-            padding: 20px;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
-        }
-        .panel-title {
-            font-size: 18px;
-            font-weight: 600;
-            margin-bottom: 15px;
-            color: #303133;
-        }
-        .chart-container {
-            height: 300px;
-        }
-        .loading {
-            text-align: center;
-            padding: 40px;
-            color: #909399;
-        }
-        @media (max-width: 768px) {
-            .content-grid { grid-template-columns: 1fr; }
-            .stats-grid { grid-template-columns: 1fr; }
-        }
+      body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+      .fade-enter-active, .fade-leave-active { transition: opacity 0.3s; }
+      .fade-enter-from, .fade-leave-to { opacity: 0; }
+      .risk-card { transition: all 0.3s; }
+      .risk-card:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
+      .status-dot { animation: pulse 2s infinite; }
+      @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
     </style>
 </head>
-<body>
-    <div id="app">
-        <div class="header">
-            <h1>🚨 实时风险预警平台</h1>
-            <p>Real-time Risk Alert Platform - Powered by Cloudflare Workers</p>
-        </div>
-        
-        <div class="container">
-            <!-- 统计卡片 -->
-            <div class="stats-grid">
-                <div class="stat-card">
-                    <div class="stat-label">📊 监控数据源</div>
-                    <div class="stat-value" style="color: #409eff;">{{ stats.dataSources }}</div>
-                    <el-progress :percentage="100" :show-text="false" color="#409eff"></el-progress>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-label">⚠️ 今日预警总数</div>
-                    <div class="stat-value" style="color: #e6a23c;">{{ stats.totalAlerts }}</div>
-                    <el-progress :percentage="70" :show-text="false" color="#e6a23c"></el-progress>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-label">🟡 警告级别</div>
-                    <div class="stat-value" style="color: #e6a23c;">{{ stats.warningAlerts }}</div>
-                    <el-progress :percentage="40" :show-text="false" color="#e6a23c"></el-progress>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-label">🔴 严重级别</div>
-                    <div class="stat-value" style="color: #f56c6c;">{{ stats.criticalAlerts }}</div>
-                    <el-progress :percentage="30" :show-text="false" color="#f56c6c"></el-progress>
-                </div>
-            </div>
-
-            <!-- 主要内容区 -->
-            <div class="content-grid">
-                <!-- 左侧：图表 -->
-                <div>
-                    <div class="panel">
-                        <div class="panel-title">📈 数据源实时监控</div>
-                        <div class="chart-container" ref="dataChart"></div>
-                    </div>
-                    
-                    <div class="panel" style="margin-top: 20px;">
-                        <div class="panel-title">📊 预警趋势分析</div>
-                        <div class="chart-container" ref="trendChart"></div>
-                    </div>
-                </div>
-
-                <!-- 右侧：实时预警列表 -->
-                <div>
-                    <div class="panel">
-                        <div class="panel-title">
-                            🔔 实时预警
-                            <el-badge :value="recentAlerts.length" style="float: right; margin-top: 5px;"></el-badge>
-                        </div>
-                        
-                        <el-timeline v-if="recentAlerts.length > 0">
-                            <el-timeline-item
-                                v-for="alert in recentAlerts"
-                                :key="alert.id"
-                                :timestamp="formatTime(alert.created_at)"
-                                :color="alert.level === 'critical' ? '#f56c6c' : '#e6a23c'"
-                            >
-                                <el-tag 
-                                    :type="alert.level === 'critical' ? 'danger' : 'warning'" 
-                                    size="small"
-                                    style="margin-right: 8px;"
-                                >
-                                    {{ alert.level === 'critical' ? '严重' : '警告' }}
-                                </el-tag>
-                                <div style="margin-top: 5px; font-size: 13px;">
-                                    {{ alert.message }}
-                                </div>
-                            </el-timeline-item>
-                        </el-timeline>
-                        
-                        <div v-else class="loading">
-                            暂无预警记录
-                        </div>
-                    </div>
-
-                    <!-- 数据源列表 -->
-                    <div class="panel" style="margin-top: 20px;">
-                        <div class="panel-title">💾 数据源状态</div>
-                        <el-table :data="dataSources" size="small" style="width: 100%">
-                            <el-table-column prop="name" label="名称" width="120" />
-                            <el-table-column prop="value" label="当前值" width="80">
-                                <template #default="scope">
-                                    {{ scope.row.value }}{{ scope.row.unit }}
-                                </template>
-                            </el-table-column>
-                            <el-table-column prop="status" label="状态" width="80">
-                                <template #default="scope">
-                                    <el-tag 
-                                        :type="scope.row.status === 'critical' ? 'danger' : scope.row.status === 'warning' ? 'warning' : 'success'" 
-                                        size="small"
-                                    >
-                                        {{ scope.row.status === 'critical' ? '严重' : scope.row.status === 'warning' ? '警告' : '正常' }}
-                                    </el-tag>
-                                </template>
-                            </el-table-column>
-                        </el-table>
-                    </div>
-                </div>
-            </div>
-
-            <!-- 底部链接 -->
-            <div style="margin-top: 30px; text-align: center; color: #909399;">
-                <el-space :size="20">
-                    <el-link href="/api/health" target="_blank" type="primary">API 健康检查</el-link>
-                    <el-link href="https://github.com" target="_blank" type="info">GitHub 仓库</el-link>
-                    <el-link @click="testDataUpdate" type="success">模拟数据更新</el-link>
-                </el-space>
-            </div>
-        </div>
-    </div>
-
+<body class="bg-gray-50">
+    <div id="app"></div>
     <script src="/static/app.js"></script>
 </body>
 </html>

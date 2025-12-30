@@ -38,10 +38,10 @@ const App = {
     const currentRisk = ref(null);
     const showDetail = ref(false);
 
-    // SSE连接状态
-    const sseConnected = ref(false);
+    // 实时连接状态
+    const realtimeConnected = ref(true);
     const latestRisks = ref([]);
-    let eventSource = null;
+    let pollingInterval = null;
 
     // ========== API 请求 ==========
     const API_BASE = '/api';
@@ -115,41 +115,34 @@ const App = {
       currentRisk.value = null;
     };
 
-    // 连接SSE实时数据流
-    const connectSSE = () => {
-      if (eventSource) {
-        eventSource.close();
-      }
-
-      eventSource = new EventSource(`${API_BASE}/realtime`);
-
-      eventSource.onmessage = (event) => {
-        try {
-          const data = JSON.parse(event.data);
-          if (data.type === 'connected') {
-            sseConnected.value = true;
-            console.log('✅ SSE连接成功');
-          } else if (data.type === 'update') {
-            latestRisks.value = data.data;
-            console.log('📡 收到实时数据:', data.data.length, '条');
-          }
-        } catch (error) {
-          console.error('SSE数据解析失败:', error);
+    // 轮询获取实时数据
+    const fetchRealtimeData = async () => {
+      try {
+        const response = await axios.get(`${API_BASE}/realtime`);
+        if (response.data.success) {
+          latestRisks.value = response.data.data.risks;
+          realtimeConnected.value = true;
         }
-      };
-
-      eventSource.onerror = (error) => {
-        console.error('SSE连接错误:', error);
-        sseConnected.value = false;
-      };
+      } catch (error) {
+        console.error('获取实时数据失败:', error);
+        realtimeConnected.value = false;
+      }
     };
 
-    // 断开SSE连接
-    const disconnectSSE = () => {
-      if (eventSource) {
-        eventSource.close();
-        eventSource = null;
-        sseConnected.value = false;
+    // 启动轮询
+    const startPolling = () => {
+      // 立即获取一次
+      fetchRealtimeData();
+      
+      // 每5秒轮询一次
+      pollingInterval = setInterval(fetchRealtimeData, 5000);
+    };
+
+    // 停止轮询
+    const stopPolling = () => {
+      if (pollingInterval) {
+        clearInterval(pollingInterval);
+        pollingInterval = null;
       }
     };
 
@@ -286,7 +279,7 @@ const App = {
       fetchStatistics();
       fetchCompanies();
       fetchRisks();
-      connectSSE();
+      startPolling();
 
       // 监听窗口大小变化，重新渲染图表
       window.addEventListener('resize', () => {
@@ -297,7 +290,7 @@ const App = {
     });
 
     onUnmounted(() => {
-      disconnectSSE();
+      stopPolling();
       levelChart?.dispose();
       companyChart?.dispose();
       trendChart?.dispose();
@@ -314,7 +307,7 @@ const App = {
       companies,
       currentRisk,
       showDetail,
-      sseConnected,
+      sseConnected: realtimeConnected,
       latestRisks,
       fetchStatistics,
       fetchRisks,
