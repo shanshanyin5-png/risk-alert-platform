@@ -28,7 +28,10 @@ const App = {
     const filters = reactive({
       company: '',
       level: '',
-      keyword: ''
+      keyword: '',
+      startDate: '',  // 新增：开始时间
+      endDate: '',    // 新增：结束时间
+      sourceRegion: '' // 新增：来源地区
     });
 
     // 公司列表
@@ -134,8 +137,11 @@ const App = {
       // 立即获取一次
       fetchRealtimeData();
       
-      // 每5秒轮询一次
+      // 每5秒轮询一次实时数据
       pollingInterval = setInterval(fetchRealtimeData, 5000);
+      
+      // 每30秒触发一次新闻采集
+      setInterval(triggerNewsCollection, 30000);
     };
 
     // 停止轮询
@@ -143,6 +149,26 @@ const App = {
       if (pollingInterval) {
         clearInterval(pollingInterval);
         pollingInterval = null;
+      }
+    };
+    
+    // 触发新闻采集
+    const triggerNewsCollection = async () => {
+      try {
+        console.log('[NewsCollector] 触发新闻采集...');
+        const response = await axios.post(`${API_BASE}/news/collect?useMock=true`);
+        if (response.data.success) {
+          console.log('[NewsCollector] 采集成功:', response.data.data);
+          // 采集成功后，刷新统计数据和风险列表
+          if (activeTab.value === 'dashboard') {
+            await fetchStatistics();
+          }
+          if (activeTab.value === 'risks') {
+            await fetchRisks(false);
+          }
+        }
+      } catch (error) {
+        console.error('[NewsCollector] 采集失败:', error);
       }
     };
 
@@ -394,8 +420,8 @@ const App = {
             <div class="flex items-center space-x-3">
               <i class="fas fa-shield-alt text-3xl"></i>
               <div>
-                <h1 class="text-2xl font-bold">实时风险预警平台</h1>
-                <p class="text-sm text-blue-100">Risk Alert Monitoring System</p>
+                <h1 class="text-2xl font-bold">国网风险预警平台</h1>
+                <p class="text-sm text-blue-100">7×24小时实时监控 · State Grid Risk Alert System</p>
               </div>
             </div>
             <div class="flex items-center space-x-4">
@@ -536,7 +562,7 @@ const App = {
         <div v-show="activeTab === 'risks'">
           <!-- 筛选条件 -->
           <div class="bg-white rounded-lg shadow p-6 mb-6">
-            <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div class="grid grid-cols-1 md:grid-cols-6 gap-4">
               <div>
                 <label class="block text-sm font-medium text-gray-700 mb-2">公司筛选</label>
                 <select v-model="filters.company" @change="fetchRisks(true)" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
@@ -557,18 +583,47 @@ const App = {
                 </select>
               </div>
 
-              <div class="md:col-span-2">
-                <label class="block text-sm font-medium text-gray-700 mb-2">关键词搜索</label>
+              <div>
+                <label class="block text-sm font-medium text-gray-700 mb-2">来源地区</label>
+                <select v-model="filters.sourceRegion" @change="fetchRisks(true)" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                  <option value="">全部来源</option>
+                  <option value="domestic">境内媒体</option>
+                  <option value="overseas">境外媒体</option>
+                </select>
+              </div>
+
+              <div>
+                <label class="block text-sm font-medium text-gray-700 mb-2">开始时间</label>
+                <input 
+                  v-model="filters.startDate" 
+                  @change="fetchRisks(true)"
+                  type="date" 
+                  class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                />
+              </div>
+
+              <div>
+                <label class="block text-sm font-medium text-gray-700 mb-2">结束时间</label>
+                <input 
+                  v-model="filters.endDate" 
+                  @change="fetchRisks(true)"
+                  type="date" 
+                  class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                />
+              </div>
+
+              <div>
+                <label class="block text-sm font-medium text-gray-700 mb-2">关键词</label>
                 <div class="flex space-x-2">
                   <input 
                     v-model="filters.keyword" 
                     @keyup.enter="fetchRisks(true)"
                     type="text" 
-                    placeholder="搜索标题或风险事项..." 
+                    placeholder="搜索..." 
                     class="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                   />
-                  <button @click="fetchRisks(true)" class="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">
-                    <i class="fas fa-search mr-2"></i>搜索
+                  <button @click="fetchRisks(true)" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">
+                    <i class="fas fa-search"></i>
                   </button>
                 </div>
               </div>
@@ -596,6 +651,12 @@ const App = {
                   <p class="text-gray-600 text-sm mb-3">{{ truncateText(risk.risk_item, 200) }}</p>
                   <div class="flex items-center space-x-4 text-sm text-gray-500">
                     <span><i class="fas fa-link mr-1"></i>来源: {{ truncateText(risk.source, 50) }}</span>
+                    <span v-if="risk.source_url" class="text-blue-600 hover:underline" @click.stop="window.open(risk.source_url, '_blank')">
+                      <i class="fas fa-external-link-alt mr-1"></i>查看原文
+                    </span>
+                    <span v-if="risk.source_region">
+                      <i class="fas fa-globe mr-1"></i>{{ risk.source_region === 'domestic' ? '境内' : '境外' }}
+                    </span>
                     <span><i class="far fa-clock mr-1"></i>{{ formatDate(risk.created_at) }}</span>
                   </div>
                 </div>
@@ -675,10 +736,21 @@ const App = {
               </div>
 
               <div>
-                <label class="text-sm font-medium text-gray-500">来源链接</label>
+                <label class="text-sm font-medium text-gray-500">来源</label>
                 <p class="mt-1">
-                  <a :href="currentRisk.source" target="_blank" class="text-blue-600 hover:underline break-all">
-                    {{ currentRisk.source }}
+                  <span class="text-gray-800">{{ currentRisk.source }}</span>
+                  <span v-if="currentRisk.source_region" class="ml-2 px-2 py-1 text-xs rounded-full" :class="currentRisk.source_region === 'domestic' ? 'bg-blue-100 text-blue-800' : 'bg-green-100 text-green-800'">
+                    {{ currentRisk.source_region === 'domestic' ? '境内媒体' : '境外媒体' }}
+                  </span>
+                </p>
+              </div>
+
+              <div v-if="currentRisk.source_url">
+                <label class="text-sm font-medium text-gray-500">原文链接</label>
+                <p class="mt-1">
+                  <a :href="currentRisk.source_url" target="_blank" class="text-blue-600 hover:underline break-all flex items-center">
+                    <i class="fas fa-external-link-alt mr-2"></i>
+                    {{ currentRisk.source_url }}
                   </a>
                 </p>
               </div>
