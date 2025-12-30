@@ -160,7 +160,7 @@ const App = {
       }, 100);
     };
 
-    // 风险等级分布柱状图
+    // 风险等级分布雷达图
     const renderLevelChart = () => {
       const dom = document.getElementById('level-chart');
       if (!dom) return;
@@ -168,49 +168,85 @@ const App = {
       if (levelChart) levelChart.dispose();
       levelChart = echarts.init(dom);
 
+      // 计算最大值用于雷达图范围
+      const maxValue = Math.max(
+        statistics.value.highRisks,
+        statistics.value.mediumRisks,
+        statistics.value.lowRisks
+      );
+      const radarMax = Math.ceil(maxValue * 1.2); // 增加20%余量
+
       const option = {
-        title: { text: '风险等级分布', left: 'center', top: 10 },
-        tooltip: { 
-          trigger: 'axis',
-          formatter: '{b}: {c}条'
+        title: { 
+          text: '风险等级分布', 
+          left: 'center', 
+          top: 10,
+          textStyle: { fontSize: 16, fontWeight: 'bold' }
         },
-        grid: { left: '10%', right: '10%', bottom: '15%', top: '20%', containLabel: true },
-        xAxis: {
-          type: 'category',
-          data: ['高风险', '中风险', '低风险'],
-          axisLabel: { 
-            fontSize: 12,
-            fontWeight: 'bold'
+        tooltip: { 
+          trigger: 'item',
+          formatter: (params) => {
+            const indicators = ['高风险', '中风险', '低风险'];
+            return indicators[params.componentIndex] + ': ' + params.value[params.componentIndex] + '条';
           }
         },
-        yAxis: { 
-          type: 'value',
-          name: '数量（条）',
-          nameTextStyle: { fontSize: 12 }
+        legend: {
+          bottom: 10,
+          left: 'center',
+          data: ['风险数量']
+        },
+        radar: {
+          center: ['50%', '55%'],
+          radius: '65%',
+          indicator: [
+            { name: '高风险', max: radarMax, color: '#ef4444' },
+            { name: '中风险', max: radarMax, color: '#f97316' },
+            { name: '低风险', max: radarMax, color: '#eab308' }
+          ],
+          axisName: {
+            fontSize: 13,
+            fontWeight: 'bold'
+          },
+          splitArea: {
+            areaStyle: {
+              color: ['rgba(239, 68, 68, 0.05)', 'rgba(249, 115, 22, 0.05)', 
+                      'rgba(234, 179, 8, 0.05)', 'rgba(255, 255, 255, 0.05)']
+            }
+          }
         },
         series: [{
-          type: 'bar',
+          name: '风险数量',
+          type: 'radar',
           data: [
-            { 
-              value: statistics.value.highRisks, 
-              itemStyle: { color: '#ef4444' }
-            },
-            { 
-              value: statistics.value.mediumRisks, 
-              itemStyle: { color: '#f97316' }
-            },
-            { 
-              value: statistics.value.lowRisks, 
-              itemStyle: { color: '#eab308' }
+            {
+              value: [
+                statistics.value.highRisks,
+                statistics.value.mediumRisks,
+                statistics.value.lowRisks
+              ],
+              name: '风险数量',
+              areaStyle: {
+                color: 'rgba(59, 130, 246, 0.3)'
+              },
+              lineStyle: {
+                color: '#3b82f6',
+                width: 2
+              },
+              itemStyle: {
+                color: '#3b82f6',
+                borderWidth: 2
+              },
+              label: {
+                show: true,
+                fontSize: 12,
+                fontWeight: 'bold',
+                color: '#1f2937',
+                formatter: (params) => {
+                  return params.value + '条';
+                }
+              }
             }
-          ],
-          barWidth: '50%',
-          label: { 
-            show: true, 
-            position: 'top',
-            fontSize: 14,
-            fontWeight: 'bold'
-          }
+          ]
         }]
       };
 
