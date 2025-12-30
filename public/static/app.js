@@ -30,8 +30,7 @@ const App = {
       level: '',
       keyword: '',
       startDate: '',  // 新增：开始时间
-      endDate: '',    // 新增：结束时间
-      sourceRegion: '' // 新增：来源地区
+      endDate: ''     // 新增：结束时间
     });
 
     // 公司列表
@@ -562,7 +561,7 @@ const App = {
         <div v-show="activeTab === 'risks'">
           <!-- 筛选条件 -->
           <div class="bg-white rounded-lg shadow p-6 mb-6">
-            <div class="grid grid-cols-1 md:grid-cols-6 gap-4">
+            <div class="grid grid-cols-1 md:grid-cols-5 gap-4">
               <div>
                 <label class="block text-sm font-medium text-gray-700 mb-2">公司筛选</label>
                 <select v-model="filters.company" @change="fetchRisks(true)" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
@@ -580,15 +579,6 @@ const App = {
                   <option value="高风险">高风险</option>
                   <option value="中风险">中风险</option>
                   <option value="低风险">低风险</option>
-                </select>
-              </div>
-
-              <div>
-                <label class="block text-sm font-medium text-gray-700 mb-2">来源地区</label>
-                <select v-model="filters.sourceRegion" @change="fetchRisks(true)" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
-                  <option value="">全部来源</option>
-                  <option value="domestic">境内媒体</option>
-                  <option value="overseas">境外媒体</option>
                 </select>
               </div>
 
@@ -653,9 +643,6 @@ const App = {
                     <span><i class="fas fa-link mr-1"></i>来源: {{ truncateText(risk.source, 50) }}</span>
                     <span v-if="risk.source_url" class="text-blue-600 hover:underline" @click.stop="window.open(risk.source_url, '_blank')">
                       <i class="fas fa-external-link-alt mr-1"></i>查看原文
-                    </span>
-                    <span v-if="risk.source_region">
-                      <i class="fas fa-globe mr-1"></i>{{ risk.source_region === 'domestic' ? '境内' : '境外' }}
                     </span>
                     <span><i class="far fa-clock mr-1"></i>{{ formatDate(risk.created_at) }}</span>
                   </div>
@@ -737,12 +724,7 @@ const App = {
 
               <div>
                 <label class="text-sm font-medium text-gray-500">来源</label>
-                <p class="mt-1">
-                  <span class="text-gray-800">{{ currentRisk.source }}</span>
-                  <span v-if="currentRisk.source_region" class="ml-2 px-2 py-1 text-xs rounded-full" :class="currentRisk.source_region === 'domestic' ? 'bg-blue-100 text-blue-800' : 'bg-green-100 text-green-800'">
-                    {{ currentRisk.source_region === 'domestic' ? '境内媒体' : '境外媒体' }}
-                  </span>
-                </p>
+                <p class="mt-1 text-gray-800">{{ currentRisk.source }}</p>
               </div>
 
               <div v-if="currentRisk.source_url">
