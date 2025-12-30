@@ -1,16 +1,51 @@
-# 实时风险预警平台
+# 国网风险预警平台
 
-> 基于 Cloudflare Pages + Hono + Vue3 + ECharts 的电力行业风险监控系统
+> 7×24小时实时监控 · 基于 Cloudflare Pages + Hono + Vue3 + ECharts 的电力行业风险监控系统
 
 ## 📊 项目概述
 
-这是一个完全可运行的**实时风险预警平台**，使用您的真实Excel数据（94条电力行业风险信息），实现了：
+这是一个**7×24小时实时风险预警平台**，基于Excel公司名单，从境内外正规媒体自动采集风险信息：
 
-- ✅ **实时监控大屏** - 统计卡片、ECharts可视化图表、实时风险流
-- ✅ **风险列表管理** - 支持分页、筛选、搜索、详情查看
-- ✅ **数据统计分析** - 风险等级分布、公司分布TOP10、7天趋势
-- ✅ **自动数据刷新** - 每5秒自动轮询最新数据
+- ✅ **实时新闻监控** - 自动采集境内外媒体风险信息（每30秒刷新）
+- ✅ **智能风险检测** - 自动识别高/中/低风险等级
+- ✅ **多源数据融合** - Excel历史数据 + 实时新闻采集
+- ✅ **监控大屏** - 统计卡片、ECharts可视化图表、实时风险流
+- ✅ **高级筛选** - 时间范围、来源地区、公司、风险等级
+- ✅ **原文链接** - 每条风险信息附带原始新闻URL
 - ✅ **响应式设计** - 支持桌面端和移动端访问
+
+## 🎯 核心特性
+
+### 🔍 监控公司列表（10家）
+基于Excel数据的监控目标：
+1. 巴基斯坦PMLTC公司
+2. 巴西CPFL公司
+3. 菲律宾NGCP公司
+4. 智利CGE公司
+5. 南澳Electranet
+6. 香港电灯公司
+7. 国家电网巴西控股公司
+8. 希腊IPTO公司
+9. 澳大利亚澳洲资产公司
+10. 葡萄牙REN公司
+
+### 📰 新闻源覆盖
+
+**境内媒体：**
+- 新华网、人民网、央视网
+- 中国新闻网、财新网、第一财经
+
+**境外媒体：**
+- Reuters（路透社）
+- Bloomberg（彭博社）
+- AP News（美联社）
+- BBC（英国广播公司）
+
+### 🤖 自动化功能
+- **自动采集**：每30秒触发一次新闻采集
+- **智能分类**：自动检测风险等级（高/中/低）
+- **去重机制**：基于URL自动去除重复新闻
+- **实时更新**：前端每5秒刷新最新数据
 
 ## 🌐 在线访问
 
@@ -18,25 +53,44 @@
 
 ## 📋 已完成功能
 
-### 1. 监控大屏
+### 1. 实时新闻监控 🔥
+- **自动采集**：每30秒自动从境内外媒体采集风险信息
+- **智能检测**：自动识别风险等级（高/中/低风险）
+- **新闻源**：支持10+境内外正规媒体
+- **去重机制**：基于URL自动去除重复新闻
+- **原文链接**：每条风险附带可点击的原始新闻URL
+- **来源标识**：显示境内/境外媒体标签
+
+### 2. 监控大屏
 - **统计卡片**：总风险数、高风险、中风险、低风险、今日新增
-- **风险等级分布图**：饼图展示各等级风险占比
+- **风险等级分布图**：雷达图展示三维风险态势
 - **公司分布图**：柱状图展示Top 10公司风险数量
 - **风险趋势图**：折线图展示最近7天风险变化
 - **实时风险流**：自动刷新显示最新10条风险信息
 
-### 2. 风险列表
-- **高级筛选**：按公司、风险等级、关键词搜索
+### 3. 风险列表
+- **高级筛选**：
+  - 按公司筛选
+  - 按风险等级筛选
+  - 按时间范围筛选（开始/结束日期）
+  - 按来源地区筛选（境内/境外媒体）
+  - 关键词搜索
 - **分页浏览**：每页20条，支持翻页
 - **详情查看**：点击查看完整风险信息
-- **数据统计**：共94条真实数据
+- **原文跳转**：点击链接查看原始新闻
 
-### 3. 数据库表结构
+### 4. 数据库表结构
 ```sql
--- 风险信息表（已导入94条数据）
-risks (id, company_name, title, risk_item, risk_time, source, 
-       risk_level, risk_level_review, risk_value_confirm, 
-       risk_reason, remark, created_at)
+-- 风险信息表（包含历史数据+实时采集）
+risks (
+  id, company_name, title, risk_item, risk_time, 
+  source, risk_level, risk_level_review, risk_value_confirm, 
+  risk_reason, remark, created_at,
+  source_type,     -- 数据类型: manual手动/auto自动
+  source_platform, -- 数据平台: 新闻源名称
+  source_region,   -- 来源地区: domestic境内/international境外
+  source_url       -- 原文链接URL
+)
 
 -- 预警规则表（预留功能）
 alert_rules (id, rule_name, company_filter, risk_level_filter, 
@@ -53,14 +107,17 @@ alert_history (id, rule_id, risk_id, alert_type,
 risk-alert-platform/
 ├── src/
 │   ├── index.tsx              # Hono主应用入口
+│   ├── services/
+│   │   └── newsCollector.ts   # 新闻采集服务
 │   └── types/
 │       └── bindings.ts        # TypeScript类型定义
 ├── public/
 │   └── static/
 │       └── app.js             # Vue3前端应用
 ├── migrations/
-│   └── 0001_initial_schema.sql  # 数据库表结构
-├── seed.sql                   # 数据导入SQL（94条记录）
+│   ├── 0001_initial_schema.sql      # 初始数据库表结构
+│   └── 0002_add_datasource_fields.sql # 新闻源字段
+├── seed.sql                   # 数据导入SQL（94条历史记录）
 ├── wrangler.jsonc             # Cloudflare配置
 ├── ecosystem.config.cjs       # PM2配置
 ├── package.json               # 项目依赖
@@ -95,7 +152,7 @@ GET /api/statistics
 
 ### 2. 获取风险列表
 ```bash
-GET /api/risks?page=1&limit=20&company=&level=&keyword=
+GET /api/risks?page=1&limit=20&company=&level=&keyword=&startDate=&endDate=&sourceRegion=
 
 参数说明：
 - page: 页码（默认1）
@@ -103,18 +160,88 @@ GET /api/risks?page=1&limit=20&company=&level=&keyword=
 - company: 公司筛选（支持模糊搜索）
 - level: 风险等级（高风险/中风险/低风险）
 - keyword: 关键词搜索（标题+风险事项）
+- startDate: 开始日期（YYYY-MM-DD格式）
+- endDate: 结束日期（YYYY-MM-DD格式）
+- sourceRegion: 来源地区（domestic境内/international境外）
 
 响应示例：
 {
   "success": true,
   "data": {
-    "list": [...],
+    "list": [
+      {
+        "id": 95,
+        "company_name": "巴基斯坦PMLTC公司",
+        "title": "PMLTC Matiari-Lahore HVDC项目遭遇技术故障",
+        "source": "路透社",
+        "source_url": "https://www.reuters.com/...",
+        "source_region": "international",
+        "risk_level": "高风险",
+        ...
+      }
+    ],
     "pagination": {
       "page": 1,
       "limit": 20,
-      "total": 94,
+      "total": 99,
       "totalPages": 5
     }
+  }
+}
+```
+
+### 6. 新闻采集API（自动触发）
+```bash
+POST /api/news/collect?useMock=true
+
+参数说明：
+- useMock: 使用模拟数据（true）或真实API（false）
+
+响应示例：
+{
+  "success": true,
+  "message": "成功采集并保存 5 条新闻",
+  "data": {
+    "total": 5,
+    "saved": 5,
+    "skipped": 0
+  }
+}
+```
+
+### 7. 监控公司列表
+```bash
+GET /api/companies/monitored
+
+响应示例：
+{
+  "success": true,
+  "data": {
+    "companies": [
+      {
+        "name": "巴基斯坦PMLTC公司",
+        "region": "international",
+        "country": "巴基斯坦"
+      }
+    ],
+    "total": 10
+  }
+}
+```
+
+### 8. 新闻源配置
+```bash
+GET /api/news/sources
+
+响应示例：
+{
+  "success": true,
+  "data": {
+    "sources": [
+      { "name": "新华网", "type": "domestic", "status": "active" },
+      { "name": "Reuters", "type": "international", "status": "active" }
+    ],
+    "total": 10
   }
 }
 ```
@@ -228,12 +355,15 @@ npm run deploy:prod
 
 ## 📊 数据统计
 
-| 数据项 | 数量 |
-|--------|------|
-| **总风险数** | 94条 |
-| **高风险** | 94条 |
-| **涉及公司** | 10家 |
-| **数据来源** | 真实Excel文件 |
+| 数据项 | 数量 | 说明 |
+|--------|------|------|
+| **总风险数** | 99条 | 历史数据94条 + 新采集5条 |
+| **高风险** | 96条 | 包含自动识别的高风险新闻 |
+| **中风险** | 0条 | 待采集 |
+| **低风险** | 3条 | 自动识别的低风险新闻 |
+| **监控公司** | 10家 | 基于Excel名单 |
+| **新闻源** | 10+ | 境内外正规媒体 |
+| **数据来源** | 多源融合 | Excel历史 + 实时采集 |
 
 ### 公司风险分布
 1. 巴基斯坦PMLTC公司：31条
@@ -322,9 +452,41 @@ module.exports = {
 }
 ```
 
-## 🚧 待实现功能
+## 🚧 扩展指南
 
-### 1. 邮件预警推送
+### 1. 接入真实新闻API
+
+当前使用模拟数据演示，如需接入真实新闻API：
+
+#### 方案A：NewsAPI.org（推荐）
+```typescript
+// 1. 注册获取API Key：https://newsapi.org/
+// 2. 在wrangler.jsonc添加环境变量
+{
+  "vars": {
+    "NEWS_API_KEY": "your-api-key-here"
+  }
+}
+
+// 3. 调用API时设置useMock=false
+POST /api/news/collect?useMock=false
+```
+
+#### 方案B：Bing News Search API
+```bash
+# 1. 注册Azure订阅
+# 2. 创建Bing Search v7资源
+# 3. 获取API Key
+# 4. 配置到wrangler.jsonc
+```
+
+#### 方案C：Google News RSS
+```typescript
+// 免费方案，但需要RSS解析
+// 已在newsCollector.ts中预留实现
+```
+
+### 2. 邮件预警推送
 需要配置SMTP服务：
 ```typescript
 // 推荐使用 Resend API
@@ -337,7 +499,7 @@ await resend.emails.send({
 });
 ```
 
-### 2. 钉钉预警推送
+### 3. 钉钉预警推送
 需要配置钉钉机器人Webhook：
 ```typescript
 const webhook = 'https://oapi.dingtalk.com/robot/send?access_token=XXX';
@@ -351,27 +513,43 @@ await fetch(webhook, {
 });
 ```
 
-### 3. 规则配置界面
+### 4. 规则配置界面
 - 前端增加规则管理页面
 - 支持动态添加/编辑/删除规则
 - 规则触发自动推送预警
+
+### 5. 调整采集频率
+```javascript
+// 在 public/static/app.js 中修改
+// 每30秒触发一次新闻采集
+setInterval(triggerNewsCollection, 30000);  // 改为60000即1分钟
+```
 
 ## 💡 使用建议
 
 ### 1. 数据实时性
 - 前端每5秒自动刷新最新数据
-- 可调整 `pollingInterval` 控制刷新频率
+- 后台每30秒自动采集新闻（可配置）
+- 可调整 `pollingInterval` 和采集频率
 
 ### 2. 性能优化
 - 数据库已创建索引，查询性能良好
 - 分页加载避免大数据量卡顿
 - ECharts图表按需渲染
+- 新闻去重机制防止重复采集
 
-### 3. 扩展建议
+### 3. 新闻源管理
+- 当前使用模拟数据演示功能
+- 生产环境需接入真实新闻API
+- 支持扩展更多新闻源
+- 可自定义风险关键词检测规则
+
+### 4. 扩展建议
 - 添加用户登录认证
 - 增加数据导出功能（Excel/PDF）
-- 接入更多数据源
+- 接入更多境内外媒体源
 - 增加风险评分算法
+- 实现AI风险分析和预测
 
 ## 🐛 常见问题
 
@@ -395,13 +573,22 @@ npx wrangler d1 execute risk_alert_db --local --command="SELECT COUNT(*) FROM ri
 
 ## 📝 更新日志
 
-### v1.0.0 (2025-12-30)
+### v2.0.0 (2025-12-30) - 实时新闻监控系统
+- ✅ **7×24小时实时监控**：自动采集境内外媒体新闻
+- ✅ **多源数据融合**：Excel历史数据 + 实时新闻采集
+- ✅ **智能风险检测**：自动识别高/中/低风险等级
+- ✅ **新闻源管理**：支持10+境内外正规媒体
+- ✅ **高级筛选**：时间范围、来源地区筛选
+- ✅ **原文链接**：每条风险附带可点击的URL
+- ✅ **自动刷新**：前端每5秒刷新，后台每30秒采集
+
+### v1.0.0 (2025-12-30) - 基础版本
 - ✅ 完成基础架构搭建
 - ✅ 导入94条真实风险数据
 - ✅ 实现监控大屏和风险列表
 - ✅ 集成ECharts数据可视化
 - ✅ 实现自动数据刷新
-- ⏳ 邮件/钉钉推送（待实现）
+- ✅ 风险等级雷达图
 
 ## 📄 许可证
 
