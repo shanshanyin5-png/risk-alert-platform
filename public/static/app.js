@@ -160,7 +160,7 @@ const App = {
       }, 100);
     };
 
-    // 风险等级分布饼图
+    // 风险等级分布柱状图
     const renderLevelChart = () => {
       const dom = document.getElementById('level-chart');
       if (!dom) return;
@@ -170,19 +170,47 @@ const App = {
 
       const option = {
         title: { text: '风险等级分布', left: 'center', top: 10 },
-        tooltip: { trigger: 'item', formatter: '{b}: {c} ({d}%)' },
-        legend: { bottom: 10, left: 'center' },
-        color: ['#ef4444', '#f97316', '#eab308'],
+        tooltip: { 
+          trigger: 'axis',
+          formatter: '{b}: {c}条'
+        },
+        grid: { left: '10%', right: '10%', bottom: '15%', top: '20%', containLabel: true },
+        xAxis: {
+          type: 'category',
+          data: ['高风险', '中风险', '低风险'],
+          axisLabel: { 
+            fontSize: 12,
+            fontWeight: 'bold'
+          }
+        },
+        yAxis: { 
+          type: 'value',
+          name: '数量（条）',
+          nameTextStyle: { fontSize: 12 }
+        },
         series: [{
-          type: 'pie',
-          radius: ['40%', '70%'],
-          avoidLabelOverlap: true,
-          label: { show: true, formatter: '{b}\n{c}条' },
+          type: 'bar',
           data: [
-            { value: statistics.value.highRisks, name: '高风险' },
-            { value: statistics.value.mediumRisks, name: '中风险' },
-            { value: statistics.value.lowRisks, name: '低风险' }
-          ]
+            { 
+              value: statistics.value.highRisks, 
+              itemStyle: { color: '#ef4444' }
+            },
+            { 
+              value: statistics.value.mediumRisks, 
+              itemStyle: { color: '#f97316' }
+            },
+            { 
+              value: statistics.value.lowRisks, 
+              itemStyle: { color: '#eab308' }
+            }
+          ],
+          barWidth: '50%',
+          label: { 
+            show: true, 
+            position: 'top',
+            fontSize: 14,
+            fontWeight: 'bold'
+          }
         }]
       };
 
