@@ -99,7 +99,8 @@ window.exportRiskList = async function(filters, pagination) {
       throw new Error('获取数据失败');
     }
     
-    const risks = response.data.data;
+    // 修复：数据在 data.list 中
+    const risks = response.data.data.list || response.data.data || [];
     
     if (!risks || risks.length === 0) {
       window.hideLoading();
