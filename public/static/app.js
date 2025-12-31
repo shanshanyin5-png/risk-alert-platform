@@ -1661,10 +1661,9 @@ const App = {
               <form v-else @submit.prevent="saveRiskEdit" class="space-y-4">
                 <div>
                   <label class="block text-sm font-medium text-gray-700 mb-2">公司名称</label>
-                  <select v-model="currentRisk.company_name" required 
+                  <input type="text" v-model="currentRisk.company_name" required 
+                    placeholder="请输入公司名称"
                     class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
-                    <option v-for="company in companies" :key="company" :value="company">{{ company }}</option>
-                  </select>
                 </div>
 
                 <div>
