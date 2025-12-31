@@ -684,6 +684,41 @@ app.post('/api/risks/manual', async (c) => {
   }
 });
 
+// 13. 更新风险信息API
+app.put('/api/risks/:id', async (c) => {
+  try {
+    const { env } = c;
+    const id = c.req.param('id');
+    const body = await c.req.json();
+    
+    // 更新风险信息
+    await env.DB.prepare(`
+      UPDATE risks 
+      SET company_name = ?, title = ?, risk_item = ?, risk_level = ?,
+          source = ?, source_url = ?, risk_reason = ?, remark = ?
+      WHERE id = ?
+    `).bind(
+      body.company_name,
+      body.title,
+      body.risk_item || '',
+      body.risk_level || 'medium',
+      body.source || '',
+      body.source_url || '',
+      body.risk_reason || '',
+      body.remark || '',
+      id
+    ).run();
+    
+    return c.json<ApiResponse>({
+      success: true,
+      message: '风险信息更新成功',
+      data: { id, ...body }
+    });
+  } catch (error: any) {
+    return c.json<ApiResponse>({ success: false, error: error.message }, 500);
+  }
+});
+
 // ========== 前端页面 ==========
 app.get('/', (c) => {
   return c.html(`

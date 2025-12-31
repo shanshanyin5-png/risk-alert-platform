@@ -1,4 +1,4 @@
-const { createApp, ref, reactive, onMounted, computed, onUnmounted } = Vue;
+const { createApp, ref, reactive, onMounted, computed, onUnmounted, watch } = Vue;
 
 const App = {
   setup() {
@@ -39,6 +39,7 @@ const App = {
     // 当前查看的风险详情
     const currentRisk = ref(null);
     const showDetail = ref(false);
+    const editingRisk = ref(false);
 
     // 实时连接状态
     const realtimeConnected = ref(true);
@@ -156,6 +157,29 @@ const App = {
     const closeDetail = () => {
       showDetail.value = false;
       currentRisk.value = null;
+      editingRisk.value = false;
+    };
+    
+    // 保存风险信息编辑
+    const saveRiskEdit = async () => {
+      try {
+        loading.value = true;
+        const response = await axios.put(`${API_BASE}/risks/${currentRisk.value.id}`, currentRisk.value);
+        
+        if (response.data.success) {
+          alert('保存成功！');
+          editingRisk.value = false;
+          // 刷新风险列表
+          await fetchRisks();
+          // 刷新统计数据
+          await fetchStatistics();
+        }
+      } catch (error) {
+        console.error('保存失败:', error);
+        alert('保存失败: ' + (error.response?.data?.error || error.message));
+      } finally {
+        loading.value = false;
+      }
     };
 
     // 轮询获取实时数据
@@ -654,6 +678,11 @@ const App = {
         fetchRecentManualRisks();
       }
     };
+    
+    // 使用watch监听activeTab变化
+    watch(activeTab, () => {
+      handleTabChange();
+    });
 
     // ========== 返回模板数据 ==========
     return {
@@ -666,6 +695,8 @@ const App = {
       companies,
       currentRisk,
       showDetail,
+      editingRisk,
+      saveRiskEdit,
       sseConnected: realtimeConnected,
       latestRisks,
       fetchStatistics,
@@ -1268,77 +1299,153 @@ const App = {
         </div>
       </main>
 
-      <!-- 风险详情弹窗 -->
+      <!-- 风险详情/编辑弹窗 -->
       <transition name="fade">
         <div v-if="showDetail" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4" @click.self="closeDetail">
           <div class="bg-white rounded-lg shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-y-auto">
             <div class="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between">
-              <h2 class="text-xl font-bold text-gray-800">风险详情</h2>
-              <button @click="closeDetail" class="text-gray-500 hover:text-gray-700">
-                <i class="fas fa-times text-xl"></i>
-              </button>
+              <h2 class="text-xl font-bold text-gray-800">{{ editingRisk ? '编辑风险信息' : '风险详情' }}</h2>
+              <div class="flex items-center space-x-2">
+                <button v-if="!editingRisk" @click="editingRisk = true" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">
+                  <i class="fas fa-edit mr-2"></i>编辑
+                </button>
+                <button @click="closeDetail" class="text-gray-500 hover:text-gray-700">
+                  <i class="fas fa-times text-xl"></i>
+                </button>
+              </div>
             </div>
 
-            <div v-if="currentRisk" class="p-6 space-y-4">
-              <div>
-                <label class="text-sm font-medium text-gray-500">风险等级</label>
-                <div class="mt-1">
-                  <span :class="['inline-block px-4 py-2 rounded-lg border', getRiskLevelClass(currentRisk.risk_level)]">
-                    {{ currentRisk.risk_level }}
-                  </span>
-                </div>
-              </div>
-
-              <div>
-                <label class="text-sm font-medium text-gray-500">公司名称</label>
-                <p class="mt-1 text-gray-800">{{ currentRisk.company_name }}</p>
-              </div>
-
-              <div>
-                <label class="text-sm font-medium text-gray-500">标题</label>
-                <p class="mt-1 text-gray-800 font-medium">{{ currentRisk.title }}</p>
-              </div>
-
-              <div>
-                <label class="text-sm font-medium text-gray-500">风险事项</label>
-                <p class="mt-1 text-gray-700 whitespace-pre-wrap">{{ currentRisk.risk_item }}</p>
-              </div>
-
-              <div class="grid grid-cols-2 gap-4">
+            <div v-if="currentRisk" class="p-6">
+              <!-- 查看模式 -->
+              <div v-if="!editingRisk" class="space-y-4">
                 <div>
-                  <label class="text-sm font-medium text-gray-500">风险时间</label>
-                  <p class="mt-1 text-gray-800">{{ formatDate(currentRisk.risk_time) }}</p>
+                  <label class="text-sm font-medium text-gray-500">风险等级</label>
+                  <div class="mt-1">
+                    <span :class="['inline-block px-4 py-2 rounded-lg border', getRiskLevelClass(currentRisk.risk_level)]">
+                      {{ currentRisk.risk_level === 'high' ? '高风险' : currentRisk.risk_level === 'medium' ? '中风险' : '低风险' }}
+                    </span>
+                  </div>
                 </div>
+
                 <div>
-                  <label class="text-sm font-medium text-gray-500">记录时间</label>
-                  <p class="mt-1 text-gray-800">{{ formatDate(currentRisk.created_at) }}</p>
+                  <label class="text-sm font-medium text-gray-500">公司名称</label>
+                  <p class="mt-1 text-gray-800">{{ currentRisk.company_name }}</p>
+                </div>
+
+                <div>
+                  <label class="text-sm font-medium text-gray-500">标题</label>
+                  <p class="mt-1 text-gray-800 font-medium">{{ currentRisk.title }}</p>
+                </div>
+
+                <div>
+                  <label class="text-sm font-medium text-gray-500">风险事项</label>
+                  <p class="mt-1 text-gray-700 whitespace-pre-wrap">{{ currentRisk.risk_item }}</p>
+                </div>
+
+                <div class="grid grid-cols-2 gap-4">
+                  <div>
+                    <label class="text-sm font-medium text-gray-500">风险时间</label>
+                    <p class="mt-1 text-gray-800">{{ formatDate(currentRisk.risk_time) }}</p>
+                  </div>
+                  <div>
+                    <label class="text-sm font-medium text-gray-500">记录时间</label>
+                    <p class="mt-1 text-gray-800">{{ formatDate(currentRisk.created_at) }}</p>
+                  </div>
+                </div>
+
+                <div>
+                  <label class="text-sm font-medium text-gray-500">来源</label>
+                  <p class="mt-1 text-gray-800">{{ currentRisk.source }}</p>
+                </div>
+
+                <div v-if="currentRisk.source_url">
+                  <label class="text-sm font-medium text-gray-500">原文链接</label>
+                  <p class="mt-1">
+                    <a :href="currentRisk.source_url" target="_blank" class="text-blue-600 hover:underline break-all flex items-center">
+                      <i class="fas fa-external-link-alt mr-2"></i>
+                      {{ currentRisk.source_url }}
+                    </a>
+                  </p>
+                </div>
+
+                <div>
+                  <label class="text-sm font-medium text-gray-500">风险判定原因</label>
+                  <p class="mt-1 text-gray-700 whitespace-pre-wrap">{{ currentRisk.risk_reason }}</p>
+                </div>
+
+                <div v-if="currentRisk.remark">
+                  <label class="text-sm font-medium text-gray-500">备注</label>
+                  <p class="mt-1 text-gray-700">{{ currentRisk.remark }}</p>
                 </div>
               </div>
 
-              <div>
-                <label class="text-sm font-medium text-gray-500">来源</label>
-                <p class="mt-1 text-gray-800">{{ currentRisk.source }}</p>
-              </div>
+              <!-- 编辑模式 -->
+              <form v-else @submit.prevent="saveRiskEdit" class="space-y-4">
+                <div>
+                  <label class="block text-sm font-medium text-gray-700 mb-2">公司名称</label>
+                  <select v-model="currentRisk.company_name" required 
+                    class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                    <option v-for="company in companies" :key="company" :value="company">{{ company }}</option>
+                  </select>
+                </div>
 
-              <div v-if="currentRisk.source_url">
-                <label class="text-sm font-medium text-gray-500">原文链接</label>
-                <p class="mt-1">
-                  <a :href="currentRisk.source_url" target="_blank" class="text-blue-600 hover:underline break-all flex items-center">
-                    <i class="fas fa-external-link-alt mr-2"></i>
-                    {{ currentRisk.source_url }}
-                  </a>
-                </p>
-              </div>
+                <div>
+                  <label class="block text-sm font-medium text-gray-700 mb-2">风险等级</label>
+                  <select v-model="currentRisk.risk_level" required 
+                    class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                    <option value="high">高风险</option>
+                    <option value="medium">中风险</option>
+                    <option value="low">低风险</option>
+                  </select>
+                </div>
 
-              <div>
-                <label class="text-sm font-medium text-gray-500">风险判定原因</label>
-                <p class="mt-1 text-gray-700 whitespace-pre-wrap">{{ currentRisk.risk_reason }}</p>
-              </div>
+                <div>
+                  <label class="block text-sm font-medium text-gray-700 mb-2">标题</label>
+                  <input v-model="currentRisk.title" required type="text" 
+                    class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                </div>
 
-              <div v-if="currentRisk.remark">
-                <label class="text-sm font-medium text-gray-500">备注</label>
-                <p class="mt-1 text-gray-700">{{ currentRisk.remark }}</p>
-              </div>
+                <div>
+                  <label class="block text-sm font-medium text-gray-700 mb-2">风险事项</label>
+                  <textarea v-model="currentRisk.risk_item" rows="4" 
+                    class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"></textarea>
+                </div>
+
+                <div>
+                  <label class="block text-sm font-medium text-gray-700 mb-2">来源</label>
+                  <input v-model="currentRisk.source" type="text" 
+                    class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                </div>
+
+                <div>
+                  <label class="block text-sm font-medium text-gray-700 mb-2">原文链接</label>
+                  <input v-model="currentRisk.source_url" type="url" 
+                    class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                </div>
+
+                <div>
+                  <label class="block text-sm font-medium text-gray-700 mb-2">风险判定原因</label>
+                  <textarea v-model="currentRisk.risk_reason" rows="3" 
+                    class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"></textarea>
+                </div>
+
+                <div>
+                  <label class="block text-sm font-medium text-gray-700 mb-2">备注</label>
+                  <textarea v-model="currentRisk.remark" rows="2" 
+                    class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"></textarea>
+                </div>
+
+                <div class="flex justify-end space-x-4 pt-4 border-t">
+                  <button type="button" @click="editingRisk = false" 
+                    class="px-6 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50">
+                    取消
+                  </button>
+                  <button type="submit" 
+                    class="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
+                    <i class="fas fa-save mr-2"></i>保存
+                  </button>
+                </div>
+              </form>
             </div>
           </div>
         </div>
