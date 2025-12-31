@@ -426,7 +426,64 @@ const App = {
     };
 
     const showAddDataSource = () => {
-      alert('新增爬取网站源功能开发中...');
+      showDataSourceModal.value = true;
+      currentDataSource.value = null;
+      // 重置表单
+      Object.assign(dataSourceForm, {
+        name: '',
+        url: '',
+        xpathRules: '',
+        fieldMapping: '',
+        enableJS: false,
+        userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        interval: 3600,
+        timeout: 30,
+        enabled: true
+      });
+    };
+
+    const closeDataSourceModal = () => {
+      showDataSourceModal.value = false;
+      currentDataSource.value = null;
+    };
+
+    const saveDataSource = async () => {
+      try {
+        const data = { ...dataSourceForm };
+        const response = await axios.post(`${API_BASE}/datasources`, data);
+        if (response.data.success) {
+          alert('保存成功！');
+          closeDataSourceModal();
+          fetchDataSources();
+        } else {
+          alert('保存失败：' + response.data.error);
+        }
+      } catch (error) {
+        alert('保存失败：' + error.message);
+      }
+    };
+
+    const editDataSource = (ds) => {
+      showDataSourceModal.value = true;
+      currentDataSource.value = ds;
+      Object.assign(dataSourceForm, ds);
+    };
+
+    const deleteDataSource = async (id) => {
+      if (!confirm('确定要删除这个数据源吗？')) return;
+      try {
+        const response = await axios.delete(`${API_BASE}/datasources/${id}`);
+        if (response.data.success) {
+          alert('删除成功！');
+          fetchDataSources();
+        }
+      } catch (error) {
+        alert('删除失败：' + error.message);
+      }
+    };
+
+    const testDataSource = (ds) => {
+      alert(`正在测试爬取 ${ds.name}...\n\n这是一个模拟测试。\n实际环境中将发起真实爬取请求。`);
     };
 
     // ========== 新增：风险等级调整功能 ==========
@@ -460,11 +517,62 @@ const App = {
     };
 
     const showAdjustModal = (company) => {
-      alert(`调整 ${company.name} 的风险等级（功能开发中）`);
+      showRiskLevelModal.value = true;
+      selectedCompanies.value = [company.id];
+      Object.assign(riskLevelForm, {
+        companyId: company.id,
+        targetLevel: company.currentLevel,
+        reason: '',
+        attachment: null
+      });
     };
 
     const showBatchAdjust = () => {
-      alert(`批量调整 ${selectedCompanies.value.length} 家企业的风险等级（功能开发中）`);
+      if (selectedCompanies.value.length === 0) {
+        alert('请先选择要调整的企业');
+        return;
+      }
+      showRiskLevelModal.value = true;
+      Object.assign(riskLevelForm, {
+        companyId: null,
+        targetLevel: '',
+        reason: '',
+        attachment: null
+      });
+    };
+
+    const closeRiskLevelModal = () => {
+      showRiskLevelModal.value = false;
+    };
+
+    const submitRiskLevelAdjust = async () => {
+      if (!riskLevelForm.targetLevel) {
+        alert('请选择目标风险等级');
+        return;
+      }
+      if (!riskLevelForm.reason || riskLevelForm.reason.trim() === '') {
+        alert('请填写调整原因');
+        return;
+      }
+
+      try {
+        const data = {
+          companyIds: selectedCompanies.value,
+          targetLevel: riskLevelForm.targetLevel,
+          reason: riskLevelForm.reason
+        };
+        const response = await axios.post(`${API_BASE}/risk-level/adjust`, data);
+        if (response.data.success) {
+          alert(response.data.message || '调整成功！');
+          closeRiskLevelModal();
+          selectedCompanies.value = [];
+          fetchRiskLevelCompanies();
+        } else {
+          alert('调整失败：' + response.data.error);
+        }
+      } catch (error) {
+        alert('调整失败：' + error.message);
+      }
     };
 
     // 监听标签页切换，加载对应数据
@@ -501,18 +609,27 @@ const App = {
       truncateText,
       // 新增：数据源管理
       dataSources,
+      showDataSourceModal,
+      dataSourceForm,
       showAddDataSource,
+      closeDataSourceModal,
+      saveDataSource,
+      editDataSource,
+      deleteDataSource,
+      testDataSource,
       // 新增：风险等级调整
       riskLevelList,
       riskLevelFilters,
       selectedCompanies,
+      showRiskLevelModal,
+      riskLevelForm,
       searchRiskLevelCompanies,
       toggleAllCompanies,
       showAdjustModal,
       showBatchAdjust,
-      handleTabChange,
-      // 导出功能
-      exportRiskList: window.exportRiskList
+      closeRiskLevelModal,
+      submitRiskLevelAdjust,
+      handleTabChange
     };
   },
 
@@ -681,7 +798,7 @@ const App = {
           <div class="flex justify-between items-center mb-4">
             <h2 class="text-2xl font-bold text-gray-800">风险信息列表</h2>
             <button 
-              @click="exportRiskList(filters, pagination)" 
+              @click="() => window.exportRiskList(filters, pagination)" 
               class="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors"
             >
               <i class="fas fa-download mr-2"></i>导出Excel
@@ -841,9 +958,9 @@ const App = {
                   <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{{ ds.successRate }}%</td>
                   <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{{ formatDate(ds.lastCrawlTime) }}</td>
                   <td class="px-6 py-4 whitespace-nowrap text-sm font-medium space-x-2">
-                    <button class="text-blue-600 hover:text-blue-900">编辑</button>
-                    <button class="text-green-600 hover:text-green-900">测试</button>
-                    <button class="text-red-600 hover:text-red-900">删除</button>
+                    <button @click="editDataSource(ds)" class="text-blue-600 hover:text-blue-900">编辑</button>
+                    <button @click="testDataSource(ds)" class="text-green-600 hover:text-green-900">测试</button>
+                    <button @click="deleteDataSource(ds.id)" class="text-red-600 hover:text-red-900">删除</button>
                   </td>
                 </tr>
               </tbody>
@@ -1007,6 +1124,135 @@ const App = {
               <div v-if="currentRisk.remark">
                 <label class="text-sm font-medium text-gray-500">备注</label>
                 <p class="mt-1 text-gray-700">{{ currentRisk.remark }}</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </transition>
+
+      <!-- 数据源配置弹窗 -->
+      <transition name="fade">
+        <div v-if="showDataSourceModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4" @click.self="closeDataSourceModal">
+          <div class="bg-white rounded-lg shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+            <div class="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between">
+              <h2 class="text-xl font-bold text-gray-800">新增爬取网站源</h2>
+              <button @click="closeDataSourceModal" class="text-gray-500 hover:text-gray-700">
+                <i class="fas fa-times text-xl"></i>
+              </button>
+            </div>
+
+            <div class="p-6 space-y-4">
+              <div>
+                <label class="block text-sm font-medium text-gray-700 mb-2">网站名称 <span class="text-red-500">*</span></label>
+                <input v-model="dataSourceForm.name" type="text" placeholder="例如：新华网风险信息" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+              </div>
+
+              <div>
+                <label class="block text-sm font-medium text-gray-700 mb-2">爬取地址 <span class="text-red-500">*</span></label>
+                <input v-model="dataSourceForm.url" type="url" placeholder="http://www.example.com" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+              </div>
+
+              <div>
+                <label class="block text-sm font-medium text-gray-700 mb-2">XPath规则</label>
+                <input v-model="dataSourceForm.xpathRules" type="text" placeholder='//div[@class="news-item"]' class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+              </div>
+
+              <div>
+                <label class="block text-sm font-medium text-gray-700 mb-2">字段映射（JSON格式）</label>
+                <textarea v-model="dataSourceForm.fieldMapping" rows="3" placeholder='{"title": "//h3", "content": "//p"}' class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"></textarea>
+              </div>
+
+              <div class="grid grid-cols-2 gap-4">
+                <div>
+                  <label class="block text-sm font-medium text-gray-700 mb-2">爬取间隔（秒）</label>
+                  <input v-model.number="dataSourceForm.interval" type="number" min="60" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                </div>
+
+                <div>
+                  <label class="block text-sm font-medium text-gray-700 mb-2">超时时间（秒）</label>
+                  <input v-model.number="dataSourceForm.timeout" type="number" min="5" max="120" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                </div>
+              </div>
+
+              <div>
+                <label class="block text-sm font-medium text-gray-700 mb-2">User-Agent</label>
+                <input v-model="dataSourceForm.userAgent" type="text" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+              </div>
+
+              <div class="flex items-center">
+                <input v-model="dataSourceForm.enableJS" type="checkbox" id="enableJS" class="rounded border-gray-300 mr-2">
+                <label for="enableJS" class="text-sm text-gray-700">启用JavaScript渲染</label>
+              </div>
+
+              <div class="flex items-center">
+                <input v-model="dataSourceForm.enabled" type="checkbox" id="enabled" class="rounded border-gray-300 mr-2">
+                <label for="enabled" class="text-sm text-gray-700">启用此数据源</label>
+              </div>
+
+              <div class="flex justify-end space-x-3 pt-4 border-t">
+                <button @click="closeDataSourceModal" class="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50">
+                  取消
+                </button>
+                <button @click="saveDataSource" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
+                  保存
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </transition>
+
+      <!-- 风险等级调整弹窗 -->
+      <transition name="fade">
+        <div v-if="showRiskLevelModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4" @click.self="closeRiskLevelModal">
+          <div class="bg-white rounded-lg shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+            <div class="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between">
+              <h2 class="text-xl font-bold text-gray-800">
+                {{ selectedCompanies.length > 1 ? '批量调整风险等级' : '调整风险等级' }}
+              </h2>
+              <button @click="closeRiskLevelModal" class="text-gray-500 hover:text-gray-700">
+                <i class="fas fa-times text-xl"></i>
+              </button>
+            </div>
+
+            <div class="p-6 space-y-4">
+              <div v-if="selectedCompanies.length > 1" class="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                <p class="text-sm text-blue-800">
+                  <i class="fas fa-info-circle mr-2"></i>
+                  已选择 <strong>{{ selectedCompanies.length }}</strong> 家企业，将统一调整为相同的风险等级
+                </p>
+              </div>
+
+              <div>
+                <label class="block text-sm font-medium text-gray-700 mb-2">目标风险等级 <span class="text-red-500">*</span></label>
+                <select v-model="riskLevelForm.targetLevel" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                  <option value="">请选择</option>
+                  <option value="高风险">高风险</option>
+                  <option value="中风险">中风险</option>
+                  <option value="低风险">低风险</option>
+                  <option value="无风险">无风险</option>
+                </select>
+              </div>
+
+              <div>
+                <label class="block text-sm font-medium text-gray-700 mb-2">调整原因 <span class="text-red-500">*</span></label>
+                <textarea v-model="riskLevelForm.reason" rows="6" placeholder="请详细说明风险等级调整的原因..." class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"></textarea>
+                <p class="text-xs text-gray-500 mt-1">建议至少填写50字以上</p>
+              </div>
+
+              <div>
+                <label class="block text-sm font-medium text-gray-700 mb-2">附件上传（可选）</label>
+                <input type="file" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                <p class="text-xs text-gray-500 mt-1">支持上传佐证材料（PDF、Word、图片等）</p>
+              </div>
+
+              <div class="flex justify-end space-x-3 pt-4 border-t">
+                <button @click="closeRiskLevelModal" class="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50">
+                  取消
+                </button>
+                <button @click="submitRiskLevelAdjust" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
+                  提交调整
+                </button>
               </div>
             </div>
           </div>
