@@ -73,6 +73,19 @@ const App = {
     });
     const riskLevelHistory = ref([]);
 
+    // ========== 新增：人工录入风险 ==========
+    const manualRisk = reactive({
+      company_name: '',
+      title: '',
+      risk_item: '',
+      risk_level: 'medium',
+      source: '人工录入',
+      source_url: '',
+      risk_reason: '',
+      remark: ''
+    });
+    const recentManualRisks = ref([]);
+
     // ========== API 请求 ==========
     const API_BASE = '/api';
 
@@ -575,6 +588,60 @@ const App = {
       }
     };
 
+    // ========== 新增：人工录入功能 ==========
+    // 提交人工录入的风险
+    const submitManualRisk = async () => {
+      try {
+        loading.value = true;
+        const response = await axios.post(`${API_BASE}/risks/manual`, manualRisk);
+        
+        if (response.data.success) {
+          alert('风险信息录入成功！');
+          resetManualRisk();
+          // 刷新最近录入列表
+          await fetchRecentManualRisks();
+          // 刷新统计数据
+          await fetchStatistics();
+        }
+      } catch (error) {
+        console.error('录入风险失败:', error);
+        alert('录入失败: ' + (error.response?.data?.error || error.message));
+      } finally {
+        loading.value = false;
+      }
+    };
+
+    // 重置表单
+    const resetManualRisk = () => {
+      manualRisk.company_name = '';
+      manualRisk.title = '';
+      manualRisk.risk_item = '';
+      manualRisk.risk_level = 'medium';
+      manualRisk.source = '人工录入';
+      manualRisk.source_url = '';
+      manualRisk.risk_reason = '';
+      manualRisk.remark = '';
+    };
+
+    // 获取最近录入的风险记录
+    const fetchRecentManualRisks = async () => {
+      try {
+        const response = await axios.get(`${API_BASE}/risks`, {
+          params: {
+            page: 1,
+            limit: 10,
+            sourceType: 'manual'
+          }
+        });
+        
+        if (response.data.success) {
+          recentManualRisks.value = response.data.data;
+        }
+      } catch (error) {
+        console.error('获取最近录入记录失败:', error);
+      }
+    };
+
     // 监听标签页切换，加载对应数据
     const handleTabChange = () => {
       if (activeTab.value === 'datasources' && dataSources.value.length === 0) {
@@ -582,6 +649,9 @@ const App = {
       }
       if (activeTab.value === 'riskLevel' && riskLevelList.value.length === 0) {
         fetchRiskLevelCompanies();
+      }
+      if (activeTab.value === 'manualInput' && recentManualRisks.value.length === 0) {
+        fetchRecentManualRisks();
       }
     };
 
@@ -629,6 +699,12 @@ const App = {
       showBatchAdjust,
       closeRiskLevelModal,
       submitRiskLevelAdjust,
+      // 新增：人工录入
+      manualRisk,
+      recentManualRisks,
+      submitManualRisk,
+      resetManualRisk,
+      fetchRecentManualRisks,
       handleTabChange
     };
   },
@@ -686,6 +762,12 @@ const App = {
             :class="['px-6 py-3 font-medium transition-colors', activeTab === 'riskLevel' ? 'border-b-2 border-blue-600 text-blue-600' : 'text-gray-600 hover:text-blue-600']"
           >
             <i class="fas fa-sliders-h mr-2"></i>风险等级调整
+          </button>
+          <button 
+            @click="activeTab = 'manualInput'" 
+            :class="['px-6 py-3 font-medium transition-colors', activeTab === 'manualInput' ? 'border-b-2 border-blue-600 text-blue-600' : 'text-gray-600 hover:text-blue-600']"
+          >
+            <i class="fas fa-edit mr-2"></i>人工录入
           </button>
         </div>
       </div>
@@ -1050,6 +1132,136 @@ const App = {
                 </tr>
               </tbody>
             </table>
+          </div>
+        </div>
+
+        <!-- 人工录入页面 -->
+        <div v-show="activeTab === 'manualInput'" class="space-y-6">
+          <div class="bg-white rounded-lg shadow-md p-6">
+            <h2 class="text-xl font-bold text-gray-800 mb-4">
+              <i class="fas fa-edit mr-2"></i>人工录入风险信息
+            </h2>
+            
+            <form @submit.prevent="submitManualRisk" class="space-y-4">
+              <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label class="block text-sm font-medium text-gray-700 mb-2">
+                    公司名称 <span class="text-red-500">*</span>
+                  </label>
+                  <select v-model="manualRisk.company_name" required 
+                    class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                    <option value="">请选择公司</option>
+                    <option v-for="company in companies" :key="company" :value="company">
+                      {{ company }}
+                    </option>
+                  </select>
+                </div>
+
+                <div>
+                  <label class="block text-sm font-medium text-gray-700 mb-2">
+                    风险等级 <span class="text-red-500">*</span>
+                  </label>
+                  <select v-model="manualRisk.risk_level" required 
+                    class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                    <option value="high">高风险</option>
+                    <option value="medium">中风险</option>
+                    <option value="low">低风险</option>
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label class="block text-sm font-medium text-gray-700 mb-2">
+                  风险标题 <span class="text-red-500">*</span>
+                </label>
+                <input v-model="manualRisk.title" required type="text" placeholder="请输入风险标题"
+                  class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+              </div>
+
+              <div>
+                <label class="block text-sm font-medium text-gray-700 mb-2">
+                  风险事项
+                </label>
+                <textarea v-model="manualRisk.risk_item" rows="3" placeholder="请输入风险事项描述"
+                  class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"></textarea>
+              </div>
+
+              <div>
+                <label class="block text-sm font-medium text-gray-700 mb-2">
+                  风险判定原因
+                </label>
+                <textarea v-model="manualRisk.risk_reason" rows="3" placeholder="请输入风险判定原因"
+                  class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"></textarea>
+              </div>
+
+              <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label class="block text-sm font-medium text-gray-700 mb-2">
+                    信息来源
+                  </label>
+                  <input v-model="manualRisk.source" type="text" placeholder="请输入信息来源"
+                    class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                </div>
+
+                <div>
+                  <label class="block text-sm font-medium text-gray-700 mb-2">
+                    来源链接（URL）
+                  </label>
+                  <input v-model="manualRisk.source_url" type="url" placeholder="https://example.com/news"
+                    class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                </div>
+              </div>
+
+              <div>
+                <label class="block text-sm font-medium text-gray-700 mb-2">
+                  备注
+                </label>
+                <textarea v-model="manualRisk.remark" rows="2" placeholder="其他补充说明"
+                  class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"></textarea>
+              </div>
+
+              <div class="flex justify-end space-x-4">
+                <button type="button" @click="resetManualRisk"
+                  class="px-6 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition-colors">
+                  <i class="fas fa-undo mr-2"></i>重置
+                </button>
+                <button type="submit"
+                  class="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">
+                  <i class="fas fa-save mr-2"></i>提交
+                </button>
+              </div>
+            </form>
+          </div>
+
+          <!-- 最近录入列表 -->
+          <div class="bg-white rounded-lg shadow-md p-6">
+            <h3 class="text-lg font-bold text-gray-800 mb-4">最近录入记录</h3>
+            <div class="overflow-x-auto">
+              <table class="w-full">
+                <thead class="bg-gray-50">
+                  <tr>
+                    <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">公司名称</th>
+                    <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">标题</th>
+                    <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">风险等级</th>
+                    <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">来源</th>
+                    <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">录入时间</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-gray-200">
+                  <tr v-for="record in recentManualRisks" :key="record.id" class="hover:bg-gray-50">
+                    <td class="px-4 py-3">{{ record.company_name }}</td>
+                    <td class="px-4 py-3">{{ truncateText(record.title, 40) }}</td>
+                    <td class="px-4 py-3">
+                      <span :class="getRiskLevelClass(record.risk_level)" class="px-2 py-1 rounded text-xs">
+                        {{ ['high', '高风险'].includes(record.risk_level) ? '高风险' : ['medium', '中风险'].includes(record.risk_level) ? '中风险' : '低风险' }}
+                      </span>
+                    </td>
+                    <td class="px-4 py-3">{{ record.source }}</td>
+                    <td class="px-4 py-3">{{ formatDate(record.created_at) }}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
       </main>

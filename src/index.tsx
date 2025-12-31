@@ -294,31 +294,38 @@ app.post('/api/notify', async (c) => {
   }
 })
 
-// 7. 获取数据源列表（改为模拟数据）
+// 7. 获取数据源列表（从数据库读取）
 app.get('/api/datasources', async (c) => {
-  // 模拟爬取网站源数据
-  const datasources = [
-    {
-      id: 1,
-      name: '新华网风险信息',
-      url: 'http://www.xinhuanet.com',
-      xpathRules: '//div[@class="news-item"]',
-      fieldMapping: JSON.stringify({ title: '//h3', content: '//p' }),
-      enableJS: false,
-      userAgent: 'Mozilla/5.0',
-      interval: 3600,
-      timeout: 30,
-      enabled: true,
-      status: 'normal',
-      lastCrawlTime: new Date().toISOString(),
-      successRate: 95.5
-    }
-  ]
-  
-  return c.json<ApiResponse>({
-    success: true,
-    data: datasources
-  })
+  try {
+    const { env } = c;
+    const result = await env.DB.prepare(`
+      SELECT 
+        id,
+        name,
+        url,
+        xpath_rules as xpathRules,
+        field_mapping as fieldMapping,
+        enable_js as enableJS,
+        user_agent as userAgent,
+        interval,
+        timeout,
+        enabled,
+        status,
+        last_crawl_time as lastCrawlTime,
+        success_rate as successRate,
+        created_at as createdAt
+      FROM news_sources
+      ORDER BY created_at DESC
+    `).all();
+    
+    return c.json<ApiResponse>({
+      success: true,
+      data: result.results || [],
+      total: result.results?.length || 0
+    });
+  } catch (error: any) {
+    return c.json<ApiResponse>({ success: false, error: error.message }, 500);
+  }
 })
 
 // 8. 手动触发数据爬取（示例接口）
@@ -478,38 +485,84 @@ app.get('/api/news/sources', async (c) => {
 // 10. 爬取网站源管理API（POST/PUT/DELETE）
 app.post('/api/datasources', async (c) => {
   try {
-    const body = await c.req.json()
-    // 这里应该保存到数据库，现在只返回成功
+    const { env } = c;
+    const body = await c.req.json();
+    
+    const result = await env.DB.prepare(`
+      INSERT INTO news_sources (
+        name, url, xpath_rules, field_mapping, enable_js, 
+        user_agent, interval, timeout, enabled, status
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).bind(
+      body.name,
+      body.url,
+      body.xpathRules || '',
+      body.fieldMapping || '{}',
+      body.enableJS ? 1 : 0,
+      body.userAgent || 'Mozilla/5.0',
+      body.interval || 3600,
+      body.timeout || 30,
+      body.enabled ? 1 : 0,
+      'normal'
+    ).run();
+    
     return c.json<ApiResponse>({
       success: true,
       message: '爬取网站源配置成功',
-      data: { id: Date.now(), ...body }
-    })
+      data: { id: result.meta.last_row_id, ...body }
+    });
   } catch (error: any) {
-    return c.json<ApiResponse>({ success: false, error: error.message }, 500)
+    return c.json<ApiResponse>({ success: false, error: error.message }, 500);
   }
 })
 
 app.put('/api/datasources/:id', async (c) => {
-  const id = c.req.param('id')
+  const id = c.req.param('id');
   try {
-    const body = await c.req.json()
+    const { env } = c;
+    const body = await c.req.json();
+    
+    await env.DB.prepare(`
+      UPDATE news_sources 
+      SET name = ?, url = ?, xpath_rules = ?, field_mapping = ?,
+          enable_js = ?, user_agent = ?, interval = ?, timeout = ?, 
+          enabled = ?, updated_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `).bind(
+      body.name,
+      body.url,
+      body.xpathRules || '',
+      body.fieldMapping || '{}',
+      body.enableJS ? 1 : 0,
+      body.userAgent || 'Mozilla/5.0',
+      body.interval || 3600,
+      body.timeout || 30,
+      body.enabled ? 1 : 0,
+      id
+    ).run();
+    
     return c.json<ApiResponse>({
       success: true,
       message: '更新成功',
       data: { id, ...body }
-    })
+    });
   } catch (error: any) {
-    return c.json<ApiResponse>({ success: false, error: error.message }, 500)
+    return c.json<ApiResponse>({ success: false, error: error.message }, 500);
   }
 })
 
 app.delete('/api/datasources/:id', async (c) => {
-  const id = c.req.param('id')
-  return c.json<ApiResponse>({
-    success: true,
-    message: '删除成功'
-  })
+  const id = c.req.param('id');
+  try {
+    const { env } = c;
+    await env.DB.prepare(`DELETE FROM news_sources WHERE id = ?`).bind(id).run();
+    return c.json<ApiResponse>({
+      success: true,
+      message: '删除成功'
+    });
+  } catch (error: any) {
+    return c.json<ApiResponse>({ success: false, error: error.message }, 500);
+  }
 })
 
 // 11. 风险等级调整API
@@ -588,6 +641,48 @@ app.get('/api/risk-level/history', async (c) => {
     data: history
   })
 })
+
+// 12. 人工输入风险信息API
+app.post('/api/risks/manual', async (c) => {
+  try {
+    const { env } = c;
+    const body = await c.req.json();
+    
+    // 验证必填字段
+    if (!body.company_name || !body.title) {
+      return c.json<ApiResponse>({
+        success: false,
+        error: '公司名称和标题为必填项'
+      }, 400);
+    }
+    
+    // 插入风险信息
+    const result = await env.DB.prepare(`
+      INSERT INTO risks (
+        company_name, title, risk_item, risk_time, source, 
+        risk_level, risk_reason, remark, source_type, source_url
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'manual', ?)
+    `).bind(
+      body.company_name,
+      body.title,
+      body.risk_item || '',
+      body.risk_time || new Date().toISOString(),
+      body.source || '人工录入',
+      body.risk_level || 'medium',
+      body.risk_reason || '',
+      body.remark || '',
+      body.source_url || ''
+    ).run();
+    
+    return c.json<ApiResponse>({
+      success: true,
+      message: '风险信息录入成功',
+      data: { id: result.meta.last_row_id, ...body }
+    });
+  } catch (error: any) {
+    return c.json<ApiResponse>({ success: false, error: error.message }, 500);
+  }
+});
 
 // ========== 前端页面 ==========
 app.get('/', (c) => {
