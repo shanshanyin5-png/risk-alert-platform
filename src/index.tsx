@@ -567,79 +567,157 @@ app.delete('/api/datasources/:id', async (c) => {
 
 // 11. 风险等级调整API
 app.get('/api/risk-level/companies', async (c) => {
-  const { DB } = c.env
+  const { env } = c
   
   try {
-    const result = await DB.prepare(`
-      SELECT DISTINCT company_name as name, 
-             COUNT(*) as risk_count
-      FROM risks 
-      GROUP BY company_name
-      ORDER BY risk_count DESC
+    // 从 companies 表查询
+    const { results } = await env.DB.prepare(`
+      SELECT 
+        id,
+        name,
+        creditCode,
+        currentLevel,
+        riskCount,
+        lastAdjustTime,
+        adjustedBy,
+        createdAt
+      FROM companies
+      ORDER BY riskCount DESC, name ASC
     `).all()
     
-    const companies = result.results.map((row: any, index: number) => ({
-      id: row.name,
-      name: row.name,
-      creditCode: `91${Math.random().toString().substring(2, 20)}`,
-      currentLevel: index < 3 ? '高风险' : index < 6 ? '中风险' : '低风险',
-      riskCount: row.risk_count,
-      lastAdjustTime: null,
-      adjustedBy: null
-    }))
+    console.log(`查询到 ${results.length} 家企业`)
     
     return c.json<ApiResponse>({
       success: true,
-      data: companies
+      data: results || []
     })
   } catch (error: any) {
-    return c.json<ApiResponse>({ success: false, error: error.message }, 500)
+    console.error('查询企业列表失败:', error)
+    return c.json<ApiResponse>({ 
+      success: false, 
+      error: error.message 
+    }, 500)
   }
 })
 
 app.post('/api/risk-level/adjust', async (c) => {
   try {
+    const { env } = c
     const body = await c.req.json()
-    const { companyIds, targetLevel, reason } = body
     
-    // 这里应该保存到数据库
-    const history = {
-      id: Date.now(),
-      companyIds,
-      targetLevel,
-      reason,
-      adjustedBy: '系统管理员',
-      adjustedAt: new Date().toISOString()
+    // 支持单个和批量调整
+    let companyIds = body.companyIds || []
+    if (body.companyId) {
+      companyIds = [body.companyId]
     }
+    
+    const { targetLevel, reason, adjustedBy = '系统管理员' } = body
+    
+    console.log('调整风险等级请求:', { companyIds, targetLevel, reason, adjustedBy })
+    
+    if (!companyIds || companyIds.length === 0) {
+      return c.json<ApiResponse>({ 
+        success: false, 
+        error: '请选择要调整的企业' 
+      }, 400)
+    }
+    
+    if (!targetLevel) {
+      return c.json<ApiResponse>({ 
+        success: false, 
+        error: '请选择目标风险等级' 
+      }, 400)
+    }
+    
+    // 批量更新企业风险等级
+    const updateResults = []
+    for (const companyId of companyIds) {
+      // 获取企业当前等级
+      const company = await env.DB.prepare(
+        'SELECT name, currentLevel FROM companies WHERE id = ? OR name = ?'
+      ).bind(companyId, companyId).first()
+      
+      if (!company) {
+        console.warn(`企业不存在: ${companyId}`)
+        continue
+      }
+      
+      const fromLevel = company.currentLevel
+      
+      // 更新企业风险等级
+      await env.DB.prepare(
+        `UPDATE companies 
+         SET currentLevel = ?, lastAdjustTime = CURRENT_TIMESTAMP, adjustedBy = ?
+         WHERE id = ? OR name = ?`
+      ).bind(targetLevel, adjustedBy, companyId, companyId).run()
+      
+      // 插入历史记录
+      await env.DB.prepare(
+        `INSERT INTO risk_level_history 
+         (companyId, companyName, fromLevel, toLevel, reason, adjustedBy, adjustedAt)
+         VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`
+      ).bind(companyId, company.name, fromLevel, targetLevel, reason || '', adjustedBy).run()
+      
+      updateResults.push({
+        companyId,
+        companyName: company.name,
+        fromLevel,
+        toLevel: targetLevel
+      })
+    }
+    
+    console.log('调整完成:', updateResults)
     
     return c.json<ApiResponse>({
       success: true,
-      message: `成功调整 ${companyIds.length} 家企业的风险等级`,
-      data: history
+      message: `成功调整 ${updateResults.length} 家企业的风险等级`,
+      data: {
+        adjustedCount: updateResults.length,
+        results: updateResults
+      }
     })
   } catch (error: any) {
-    return c.json<ApiResponse>({ success: false, error: error.message }, 500)
+    console.error('调整风险等级失败:', error)
+    return c.json<ApiResponse>({ 
+      success: false, 
+      error: error.message || '调整失败' 
+    }, 500)
   }
 })
 
 app.get('/api/risk-level/history', async (c) => {
-  // 模拟历史记录
-  const history = [
-    {
-      id: 1,
-      companyName: '巴基斯坦PMLTC公司',
-      fromLevel: '高风险',
-      toLevel: '中风险',
-      reason: '项目进度正常，风险可控',
-      adjustedBy: '张三',
-      adjustedAt: new Date(Date.now() - 86400000).toISOString()
-    }
-  ]
-  
-  return c.json<ApiResponse>({
-    success: true,
-    data: history
-  })
+  try {
+    const { env } = c
+    
+    // 从数据库查询历史记录
+    const { results } = await env.DB.prepare(
+      `SELECT 
+         id,
+         companyId,
+         companyName,
+         fromLevel,
+         toLevel,
+         reason,
+         adjustedBy,
+         adjustedAt
+       FROM risk_level_history
+       ORDER BY adjustedAt DESC
+       LIMIT 100`
+    ).all()
+    
+    console.log(`查询到 ${results.length} 条历史记录`)
+    
+    return c.json<ApiResponse>({
+      success: true,
+      data: results || []
+    })
+  } catch (error: any) {
+    console.error('查询历史记录失败:', error)
+    return c.json<ApiResponse>({ 
+      success: false, 
+      error: error.message 
+    }, 500)
+  }
 })
 
 // 12. 人工输入风险信息API
