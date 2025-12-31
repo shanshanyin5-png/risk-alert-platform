@@ -1206,13 +1206,9 @@ const App = {
                   <label class="block text-sm font-medium text-gray-700 mb-2">
                     公司名称 <span class="text-red-500">*</span>
                   </label>
-                  <select v-model="manualRisk.company_name" required 
+                  <input v-model="manualRisk.company_name" type="text" required 
+                    placeholder="请输入公司名称" 
                     class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
-                    <option value="">请选择公司</option>
-                    <option v-for="company in companies" :key="company" :value="company">
-                      {{ company }}
-                    </option>
-                  </select>
                 </div>
 
                 <div>
