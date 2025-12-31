@@ -10,21 +10,28 @@ window.exportToExcel = function(data, headers, filename) {
     return;
   }
   
-  // 转换数据格式
-  const wsData = [headers];
+  if (!data || data.length === 0) {
+    alert('没有数据可导出');
+    return;
+  }
+  
+  // 构建数据数组（二维数组格式）
+  const wsData = [headers]; // 第一行是表头
+  
   data.forEach(row => {
-    const rowData = headers.map(header => {
-      const key = header.key || header;
-      let value = row[key];
+    const rowData = [];
+    // 根据headers顺序提取数据
+    headers.forEach(header => {
+      let value = row[header] || '';
       
       // 处理特殊值
       if (value === null || value === undefined) {
-        return '';
+        value = '';
+      } else if (typeof value === 'object') {
+        value = JSON.stringify(value);
       }
-      if (typeof value === 'object') {
-        return JSON.stringify(value);
-      }
-      return value;
+      
+      rowData.push(value);
     });
     wsData.push(rowData);
   });
@@ -43,11 +50,15 @@ window.exportToExcel = function(data, headers, filename) {
   const timestamp = new Date().toISOString().slice(0, 19).replace(/:/g, '-');
   const fullFilename = `${filename}-${timestamp}.xlsx`;
   XLSX.writeFile(wb, fullFilename);
+  
+  console.log('✅ 导出成功:', fullFilename);
 };
 
 // ========== 导出当前筛选的风险列表 ==========
 window.exportRiskList = async function(filters, pagination) {
   try {
+    console.log('开始导出风险列表...', filters);
+    
     // 获取所有数据（不分页）
     const response = await axios.get('/api/risks', {
       params: {
@@ -61,9 +72,9 @@ window.exportRiskList = async function(filters, pagination) {
       throw new Error('获取数据失败');
     }
     
-    const risks = response.data.data.list;
+    const risks = response.data.data;
     
-    if (risks.length === 0) {
+    if (!risks || risks.length === 0) {
       alert('没有数据可导出');
       return;
     }
@@ -72,39 +83,26 @@ window.exportRiskList = async function(filters, pagination) {
     const confirmed = confirm(`是否导出当前筛选条件下的所有数据？共 ${risks.length} 条`);
     if (!confirmed) return;
     
-    // 定义导出列
-    const headers = [
-      { key: 'id', label: 'ID' },
-      { key: 'company_name', label: '公司名称' },
-      { key: 'title', label: '标题' },
-      { key: 'risk_item', label: '风险事项' },
-      { key: 'risk_level', label: '风险等级' },
-      { key: 'risk_time', label: '风险时间' },
-      { key: 'source', label: '来源' },
-      { key: 'source_url', label: '原文链接' },
-      { key: 'created_at', label: '创建时间' }
-    ];
+    // 定义表头（用于Excel第一行）
+    const headers = ['ID', '公司名称', '标题', '风险事项', '风险等级', '风险时间', '来源', '原文链接', '创建时间'];
     
-    // 转换数据
+    // 转换数据为Excel格式
     const exportData = risks.map(risk => ({
-      id: risk.id,
-      company_name: risk.company_name,
-      title: risk.title,
-      risk_item: (risk.risk_item || '').substring(0, 200),  // 限制长度
-      risk_level: risk.risk_level,
-      risk_time: risk.risk_time,
-      source: risk.source,
-      source_url: risk.source_url || '',
-      created_at: risk.created_at
+      'ID': risk.id,
+      '公司名称': risk.company_name,
+      '标题': risk.title,
+      '风险事项': (risk.risk_item || '').substring(0, 200),
+      '风险等级': risk.risk_level === 'high' ? '高风险' : risk.risk_level === 'medium' ? '中风险' : '低风险',
+      '风险时间': risk.risk_time || '',
+      '来源': risk.source || '',
+      '原文链接': risk.source_url || '',
+      '创建时间': risk.created_at || ''
     }));
     
-    // 导出
-    const headerLabels = headers.map(h => h.label);
-    const dataRows = exportData.map(row => 
-      headers.map(h => row[h.key])
-    );
+    console.log('导出数据:', exportData.length, '条');
     
-    exportToExcel(exportData, headerLabels, '风险信息列表');
+    // 导出
+    exportToExcel(exportData, headers, '风险信息列表');
     
   } catch (error) {
     console.error('导出失败:', error);
@@ -123,7 +121,7 @@ window.exportCompanyList = async function() {
     
     const companies = response.data.data;
     
-    if (companies.length === 0) {
+    if (!companies || companies.length === 0) {
       alert('没有数据可导出');
       return;
     }
@@ -134,12 +132,12 @@ window.exportCompanyList = async function() {
     const headers = ['企业名称', '统一社会信用代码', '当前风险等级', '风险数量', '最后调整时间', '调整人'];
     
     const exportData = companies.map(c => ({
-      name: c.name,
-      creditCode: c.creditCode,
-      currentLevel: c.currentLevel,
-      riskCount: c.riskCount,
-      lastAdjustTime: c.lastAdjustTime || '未调整',
-      adjustedBy: c.adjustedBy || '-'
+      '企业名称': c.name,
+      '统一社会信用代码': c.creditCode,
+      '当前风险等级': c.currentLevel,
+      '风险数量': c.riskCount,
+      '最后调整时间': c.lastAdjustTime || '未调整',
+      '调整人': c.adjustedBy || '-'
     }));
     
     exportToExcel(exportData, headers, '企业信息列表');
@@ -161,7 +159,7 @@ window.exportDataSourceList = async function() {
     
     const datasources = response.data.data;
     
-    if (datasources.length === 0) {
+    if (!datasources || datasources.length === 0) {
       alert('没有数据可导出');
       return;
     }
@@ -172,13 +170,13 @@ window.exportDataSourceList = async function() {
     const headers = ['网站名称', '爬取地址', 'XPath规则', '状态', '爬取间隔(秒)', '成功率(%)', '最近爬取时间'];
     
     const exportData = datasources.map(ds => ({
-      name: ds.name,
-      url: ds.url,
-      xpathRules: ds.xpathRules,
-      status: ds.status === 'normal' ? '正常' : ds.status === 'error' ? '异常' : '停用',
-      interval: ds.interval,
-      successRate: ds.successRate,
-      lastCrawlTime: ds.lastCrawlTime
+      '网站名称': ds.name,
+      '爬取地址': ds.url,
+      'XPath规则': ds.xpathRules || ds.xpath_rules || '',
+      '状态': ds.status === 'normal' ? '正常' : ds.status === 'error' ? '异常' : '停用',
+      '爬取间隔(秒)': ds.interval,
+      '成功率(%)': ds.successRate || ds.success_rate || 0,
+      '最近爬取时间': ds.lastCrawlTime || ds.last_crawl_time || '未爬取'
     }));
     
     exportToExcel(exportData, headers, '爬取网站源配置');
@@ -200,7 +198,7 @@ window.exportRiskLevelHistory = async function() {
     
     const history = response.data.data;
     
-    if (history.length === 0) {
+    if (!history || history.length === 0) {
       alert('没有数据可导出');
       return;
     }
@@ -211,12 +209,12 @@ window.exportRiskLevelHistory = async function() {
     const headers = ['企业名称', '调整前等级', '调整后等级', '调整原因', '调整人', '调整时间'];
     
     const exportData = history.map(h => ({
-      companyName: h.companyName,
-      fromLevel: h.fromLevel,
-      toLevel: h.toLevel,
-      reason: h.reason,
-      adjustedBy: h.adjustedBy,
-      adjustedAt: h.adjustedAt
+      '企业名称': h.companyName,
+      '调整前等级': h.fromLevel,
+      '调整后等级': h.toLevel,
+      '调整原因': h.reason,
+      '调整人': h.adjustedBy,
+      '调整时间': h.adjustedAt
     }));
     
     exportToExcel(exportData, headers, '风险等级调整历史');
