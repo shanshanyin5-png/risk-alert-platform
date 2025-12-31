@@ -164,7 +164,22 @@ const App = {
     const saveRiskEdit = async () => {
       try {
         loading.value = true;
-        const response = await axios.put(`${API_BASE}/risks/${currentRisk.value.id}`, currentRisk.value);
+        
+        // 只发送需要更新的字段
+        const updateData = {
+          company_name: currentRisk.value.company_name,
+          title: currentRisk.value.title,
+          risk_item: currentRisk.value.risk_item || '',
+          risk_level: currentRisk.value.risk_level,
+          source: currentRisk.value.source || '',
+          source_url: currentRisk.value.source_url || '',
+          risk_reason: currentRisk.value.risk_reason || '',
+          remark: currentRisk.value.remark || ''
+        };
+        
+        console.log('保存风险信息:', currentRisk.value.id, updateData);
+        
+        const response = await axios.put(`${API_BASE}/risks/${currentRisk.value.id}`, updateData);
         
         if (response.data.success) {
           alert('保存成功！');
@@ -173,6 +188,8 @@ const App = {
           await fetchRisks();
           // 刷新统计数据
           await fetchStatistics();
+        } else {
+          throw new Error(response.data.error || '保存失败');
         }
       } catch (error) {
         console.error('保存失败:', error);

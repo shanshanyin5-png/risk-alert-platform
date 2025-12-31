@@ -691,8 +691,18 @@ app.put('/api/risks/:id', async (c) => {
     const id = c.req.param('id');
     const body = await c.req.json();
     
+    console.log('更新风险信息 ID:', id, '数据:', body);
+    
+    // 验证必填字段
+    if (!body.company_name || !body.title) {
+      return c.json<ApiResponse>({ 
+        success: false, 
+        error: '公司名称和标题为必填项' 
+      }, 400);
+    }
+    
     // 更新风险信息
-    await env.DB.prepare(`
+    const result = await env.DB.prepare(`
       UPDATE risks 
       SET company_name = ?, title = ?, risk_item = ?, risk_level = ?,
           source = ?, source_url = ?, risk_reason = ?, remark = ?
@@ -709,13 +719,19 @@ app.put('/api/risks/:id', async (c) => {
       id
     ).run();
     
+    console.log('更新结果:', result);
+    
     return c.json<ApiResponse>({
       success: true,
       message: '风险信息更新成功',
       data: { id, ...body }
     });
   } catch (error: any) {
-    return c.json<ApiResponse>({ success: false, error: error.message }, 500);
+    console.error('更新风险信息失败:', error);
+    return c.json<ApiResponse>({ 
+      success: false, 
+      error: error.message || '更新失败' 
+    }, 500);
   }
 });
 
