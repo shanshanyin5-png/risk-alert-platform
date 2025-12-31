@@ -755,7 +755,15 @@ const App = {
       submitManualRisk,
       resetManualRisk,
       fetchRecentManualRisks,
-      handleTabChange
+      handleTabChange,
+      // 导出功能
+      exportRisks: () => {
+        if (typeof window.exportRiskList === 'function') {
+          window.exportRiskList(filters, pagination);
+        } else {
+          alert('导出功能加载失败，请刷新页面后重试');
+        }
+      }
     };
   },
 
@@ -930,7 +938,7 @@ const App = {
           <div class="flex justify-between items-center mb-4">
             <h2 class="text-2xl font-bold text-gray-800">风险信息列表</h2>
             <button 
-              @click="() => window.simpleExportRiskList()" 
+              @click="exportRisks" 
               class="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors"
             >
               <i class="fas fa-download mr-2"></i>导出Excel
