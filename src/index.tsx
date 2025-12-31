@@ -294,26 +294,31 @@ app.post('/api/notify', async (c) => {
   }
 })
 
-// 7. 获取数据源列表
+// 7. 获取数据源列表（改为模拟数据）
 app.get('/api/datasources', async (c) => {
-  const { DB } = c.env
-
-  try {
-    const result = await DB.prepare(`
-      SELECT * FROM data_sources 
-      ORDER BY source_type, source_name
-    `).all()
-
-    return c.json<ApiResponse>({ 
-      success: true, 
-      data: result.results || [] 
-    })
-  } catch (error: any) {
-    return c.json<ApiResponse>({ 
-      success: false, 
-      error: error.message 
-    }, 500)
-  }
+  // 模拟爬取网站源数据
+  const datasources = [
+    {
+      id: 1,
+      name: '新华网风险信息',
+      url: 'http://www.xinhuanet.com',
+      xpathRules: '//div[@class="news-item"]',
+      fieldMapping: JSON.stringify({ title: '//h3', content: '//p' }),
+      enableJS: false,
+      userAgent: 'Mozilla/5.0',
+      interval: 3600,
+      timeout: 30,
+      enabled: true,
+      status: 'normal',
+      lastCrawlTime: new Date().toISOString(),
+      successRate: 95.5
+    }
+  ]
+  
+  return c.json<ApiResponse>({
+    success: true,
+    data: datasources
+  })
 })
 
 // 8. 手动触发数据爬取（示例接口）
@@ -470,6 +475,120 @@ app.get('/api/news/sources', async (c) => {
   })
 })
 
+// 10. 爬取网站源管理API（POST/PUT/DELETE）
+app.post('/api/datasources', async (c) => {
+  try {
+    const body = await c.req.json()
+    // 这里应该保存到数据库，现在只返回成功
+    return c.json<ApiResponse>({
+      success: true,
+      message: '爬取网站源配置成功',
+      data: { id: Date.now(), ...body }
+    })
+  } catch (error: any) {
+    return c.json<ApiResponse>({ success: false, error: error.message }, 500)
+  }
+})
+
+app.put('/api/datasources/:id', async (c) => {
+  const id = c.req.param('id')
+  try {
+    const body = await c.req.json()
+    return c.json<ApiResponse>({
+      success: true,
+      message: '更新成功',
+      data: { id, ...body }
+    })
+  } catch (error: any) {
+    return c.json<ApiResponse>({ success: false, error: error.message }, 500)
+  }
+})
+
+app.delete('/api/datasources/:id', async (c) => {
+  const id = c.req.param('id')
+  return c.json<ApiResponse>({
+    success: true,
+    message: '删除成功'
+  })
+})
+
+// 11. 风险等级调整API
+app.get('/api/risk-level/companies', async (c) => {
+  const { DB } = c.env
+  
+  try {
+    const result = await DB.prepare(`
+      SELECT DISTINCT company_name as name, 
+             COUNT(*) as risk_count
+      FROM risks 
+      GROUP BY company_name
+      ORDER BY risk_count DESC
+    `).all()
+    
+    const companies = result.results.map((row: any, index: number) => ({
+      id: row.name,
+      name: row.name,
+      creditCode: `91${Math.random().toString().substring(2, 20)}`,
+      currentLevel: index < 3 ? '高风险' : index < 6 ? '中风险' : '低风险',
+      riskCount: row.risk_count,
+      lastAdjustTime: null,
+      adjustedBy: null
+    }))
+    
+    return c.json<ApiResponse>({
+      success: true,
+      data: companies
+    })
+  } catch (error: any) {
+    return c.json<ApiResponse>({ success: false, error: error.message }, 500)
+  }
+})
+
+app.post('/api/risk-level/adjust', async (c) => {
+  try {
+    const body = await c.req.json()
+    const { companyIds, targetLevel, reason } = body
+    
+    // 这里应该保存到数据库
+    const history = {
+      id: Date.now(),
+      companyIds,
+      targetLevel,
+      reason,
+      adjustedBy: '系统管理员',
+      adjustedAt: new Date().toISOString()
+    }
+    
+    return c.json<ApiResponse>({
+      success: true,
+      message: `成功调整 ${companyIds.length} 家企业的风险等级`,
+      data: history
+    })
+  } catch (error: any) {
+    return c.json<ApiResponse>({ success: false, error: error.message }, 500)
+  }
+})
+
+app.get('/api/risk-level/history', async (c) => {
+  // 模拟历史记录
+  const history = [
+    {
+      id: 1,
+      companyName: '巴基斯坦PMLTC公司',
+      fromLevel: '高风险',
+      toLevel: '中风险',
+      reason: '项目进度正常，风险可控',
+      adjustedBy: '张三',
+      adjustedAt: new Date(Date.now() - 86400000).toISOString()
+    }
+  ]
+  
+  return c.json<ApiResponse>({
+    success: true,
+    data: history
+  })
+})
+
 // ========== 前端页面 ==========
 app.get('/', (c) => {
   return c.html(`
@@ -483,6 +602,7 @@ app.get('/', (c) => {
     <script src="https://cdn.jsdelivr.net/npm/vue@3.4.21/dist/vue.global.prod.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/axios@1.6.7/dist/axios.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
     <link href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.5.1/css/all.min.css" rel="stylesheet">
     <style>
       body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
@@ -497,6 +617,7 @@ app.get('/', (c) => {
 <body class="bg-gray-50">
     <div id="app"></div>
     <script src="/static/app.js"></script>
+    <script src="/static/app-extensions.js"></script>
 </body>
 </html>
   `)

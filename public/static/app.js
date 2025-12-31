@@ -3,7 +3,7 @@ const { createApp, ref, reactive, onMounted, computed, onUnmounted } = Vue;
 const App = {
   setup() {
     // ========== 状态管理 ==========
-    const activeTab = ref('dashboard');  // dashboard, risks, alerts
+    const activeTab = ref('dashboard');  // dashboard, risks, alerts, datasources, riskLevel
     const loading = ref(false);
     const statistics = ref({
       totalRisks: 0,
@@ -44,6 +44,34 @@ const App = {
     const realtimeConnected = ref(true);
     const latestRisks = ref([]);
     let pollingInterval = null;
+
+    // ========== 新增：爬取网站源管理 ==========
+    const dataSources = ref([]);
+    const showDataSourceModal = ref(false);
+    const currentDataSource = ref(null);
+    const dataSourceForm = reactive({
+      name: '',
+      url: '',
+      xpathRules: '',
+      fieldMapping: '',
+      enableJS: false,
+      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+      interval: 3600,
+      timeout: 30,
+      enabled: true
+    });
+
+    // ========== 新增：风险等级调整 ==========
+    const riskLevelList = ref([]);
+    const showRiskLevelModal = ref(false);
+    const selectedCompanies = ref([]);
+    const riskLevelForm = reactive({
+      companyId: null,
+      targetLevel: '',
+      reason: '',
+      attachment: null
+    });
+    const riskLevelHistory = ref([]);
 
     // ========== API 请求 ==========
     const API_BASE = '/api';
@@ -385,6 +413,70 @@ const App = {
       trendChart?.dispose();
     });
 
+    // ========== 新增：数据源管理功能 ==========
+    const fetchDataSources = async () => {
+      try {
+        const response = await axios.get(`${API_BASE}/datasources`);
+        if (response.data.success) {
+          dataSources.value = response.data.data;
+        }
+      } catch (error) {
+        console.error('获取数据源失败:', error);
+      }
+    };
+
+    const showAddDataSource = () => {
+      alert('新增爬取网站源功能开发中...');
+    };
+
+    // ========== 新增：风险等级调整功能 ==========
+    const riskLevelFilters = reactive({
+      name: '',
+      level: ''
+    });
+
+    const fetchRiskLevelCompanies = async () => {
+      try {
+        const response = await axios.get(`${API_BASE}/risk-level/companies`);
+        if (response.data.success) {
+          riskLevelList.value = response.data.data;
+        }
+      } catch (error) {
+        console.error('获取企业列表失败:', error);
+      }
+    };
+
+    const searchRiskLevelCompanies = () => {
+      // 应用筛选逻辑
+      fetchRiskLevelCompanies();
+    };
+
+    const toggleAllCompanies = (e) => {
+      if (e.target.checked) {
+        selectedCompanies.value = riskLevelList.value.map(c => c.id);
+      } else {
+        selectedCompanies.value = [];
+      }
+    };
+
+    const showAdjustModal = (company) => {
+      alert(`调整 ${company.name} 的风险等级（功能开发中）`);
+    };
+
+    const showBatchAdjust = () => {
+      alert(`批量调整 ${selectedCompanies.value.length} 家企业的风险等级（功能开发中）`);
+    };
+
+    // 监听标签页切换，加载对应数据
+    const handleTabChange = () => {
+      if (activeTab.value === 'datasources' && dataSources.value.length === 0) {
+        fetchDataSources();
+      }
+      if (activeTab.value === 'riskLevel' && riskLevelList.value.length === 0) {
+        fetchRiskLevelCompanies();
+      }
+    };
+
     // ========== 返回模板数据 ==========
     return {
       activeTab,
@@ -406,7 +498,21 @@ const App = {
       getRiskLevelClass,
       getRiskLevelIcon,
       formatDate,
-      truncateText
+      truncateText,
+      // 新增：数据源管理
+      dataSources,
+      showAddDataSource,
+      // 新增：风险等级调整
+      riskLevelList,
+      riskLevelFilters,
+      selectedCompanies,
+      searchRiskLevelCompanies,
+      toggleAllCompanies,
+      showAdjustModal,
+      showBatchAdjust,
+      handleTabChange,
+      // 导出功能
+      exportRiskList: window.exportRiskList
     };
   },
 
@@ -451,6 +557,18 @@ const App = {
             :class="['px-6 py-3 font-medium transition-colors', activeTab === 'risks' ? 'border-b-2 border-blue-600 text-blue-600' : 'text-gray-600 hover:text-blue-600']"
           >
             <i class="fas fa-list mr-2"></i>风险列表
+          </button>
+          <button 
+            @click="activeTab = 'datasources'" 
+            :class="['px-6 py-3 font-medium transition-colors', activeTab === 'datasources' ? 'border-b-2 border-blue-600 text-blue-600' : 'text-gray-600 hover:text-blue-600']"
+          >
+            <i class="fas fa-database mr-2"></i>数据源管理
+          </button>
+          <button 
+            @click="activeTab = 'riskLevel'" 
+            :class="['px-6 py-3 font-medium transition-colors', activeTab === 'riskLevel' ? 'border-b-2 border-blue-600 text-blue-600' : 'text-gray-600 hover:text-blue-600']"
+          >
+            <i class="fas fa-sliders-h mr-2"></i>风险等级调整
           </button>
         </div>
       </div>
@@ -559,6 +677,17 @@ const App = {
 
         <!-- 风险列表 -->
         <div v-show="activeTab === 'risks'">
+          <!-- 标题和导出按钮 -->
+          <div class="flex justify-between items-center mb-4">
+            <h2 class="text-2xl font-bold text-gray-800">风险信息列表</h2>
+            <button 
+              @click="exportRiskList(filters, pagination)" 
+              class="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors"
+            >
+              <i class="fas fa-download mr-2"></i>导出Excel
+            </button>
+          </div>
+          
           <!-- 筛选条件 -->
           <div class="bg-white rounded-lg shadow p-6 mb-6">
             <div class="grid grid-cols-1 md:grid-cols-5 gap-4">
@@ -671,6 +800,139 @@ const App = {
             >
               <i class="fas fa-chevron-right"></i>
             </button>
+          </div>
+        </div>
+
+        <!-- 数据源管理页面 -->
+        <div v-show="activeTab === 'datasources'" class="space-y-6">
+          <div class="flex justify-between items-center">
+            <h2 class="text-2xl font-bold text-gray-800">爬取网站源配置</h2>
+            <div class="space-x-2">
+              <button onclick="exportDataSourceList()" class="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors">
+                <i class="fas fa-download mr-2"></i>导出Excel
+              </button>
+              <button @click="showAddDataSource" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">
+                <i class="fas fa-plus mr-2"></i>新增爬取网站源
+              </button>
+            </div>
+          </div>
+
+          <div class="bg-white rounded-lg shadow overflow-hidden">
+            <table class="min-w-full divide-y divide-gray-200">
+              <thead class="bg-gray-50">
+                <tr>
+                  <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">网站名称</th>
+                  <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">爬取地址</th>
+                  <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">状态</th>
+                  <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">成功率</th>
+                  <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">最近爬取</th>
+                  <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">操作</th>
+                </tr>
+              </thead>
+              <tbody class="bg-white divide-y divide-gray-200">
+                <tr v-for="ds in dataSources" :key="ds.id">
+                  <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{{ ds.name }}</td>
+                  <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{{ truncateText(ds.url, 40) }}</td>
+                  <td class="px-6 py-4 whitespace-nowrap">
+                    <span :class="['px-2 py-1 text-xs rounded-full', ds.status === 'normal' ? 'bg-green-100 text-green-800' : ds.status === 'error' ? 'bg-red-100 text-red-800' : 'bg-gray-100 text-gray-800']">
+                      {{ ds.status === 'normal' ? '正常' : ds.status === 'error' ? '异常' : '停用' }}
+                    </span>
+                  </td>
+                  <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{{ ds.successRate }}%</td>
+                  <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{{ formatDate(ds.lastCrawlTime) }}</td>
+                  <td class="px-6 py-4 whitespace-nowrap text-sm font-medium space-x-2">
+                    <button class="text-blue-600 hover:text-blue-900">编辑</button>
+                    <button class="text-green-600 hover:text-green-900">测试</button>
+                    <button class="text-red-600 hover:text-red-900">删除</button>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- 风险等级调整页面 -->
+        <div v-show="activeTab === 'riskLevel'" class="space-y-6">
+          <div class="flex justify-between items-center">
+            <h2 class="text-2xl font-bold text-gray-800">风险等级手动调整</h2>
+            <div class="space-x-2">
+              <button onclick="exportCompanyList()" class="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors">
+                <i class="fas fa-download mr-2"></i>导出企业列表
+              </button>
+              <button onclick="exportRiskLevelHistory()" class="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors">
+                <i class="fas fa-download mr-2"></i>导出调整历史
+              </button>
+            </div>
+          </div>
+
+          <div class="bg-white rounded-lg shadow p-6">
+            <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
+              <div>
+                <label class="block text-sm font-medium text-gray-700 mb-2">企业名称</label>
+                <input v-model="riskLevelFilters.name" type="text" placeholder="输入企业名称" class="w-full px-3 py-2 border border-gray-300 rounded-lg">
+              </div>
+              <div>
+                <label class="block text-sm font-medium text-gray-700 mb-2">当前风险等级</label>
+                <select v-model="riskLevelFilters.level" class="w-full px-3 py-2 border border-gray-300 rounded-lg">
+                  <option value="">全部等级</option>
+                  <option value="高风险">高风险</option>
+                  <option value="中风险">中风险</option>
+                  <option value="低风险">低风险</option>
+                </select>
+              </div>
+              <div class="flex items-end">
+                <button @click="searchRiskLevelCompanies" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
+                  <i class="fas fa-search mr-2"></i>搜索
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div class="bg-white rounded-lg shadow overflow-hidden">
+            <div class="px-6 py-4 border-b border-gray-200 flex justify-between items-center">
+              <div>
+                <span class="text-sm text-gray-500">已选择 {{ selectedCompanies.length }} 家企业</span>
+              </div>
+              <button v-if="selectedCompanies.length > 0" @click="showBatchAdjust" class="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700">
+                <i class="fas fa-edit mr-2"></i>批量调整
+              </button>
+            </div>
+            <table class="min-w-full divide-y divide-gray-200">
+              <thead class="bg-gray-50">
+                <tr>
+                  <th class="px-6 py-3 text-left">
+                    <input type="checkbox" @change="toggleAllCompanies" class="rounded border-gray-300">
+                  </th>
+                  <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">企业名称</th>
+                  <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">信用代码</th>
+                  <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">当前风险等级</th>
+                  <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">风险数量</th>
+                  <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">最后调整时间</th>
+                  <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">操作</th>
+                </tr>
+              </thead>
+              <tbody class="bg-white divide-y divide-gray-200">
+                <tr v-for="company in riskLevelList" :key="company.id">
+                  <td class="px-6 py-4">
+                    <input type="checkbox" :value="company.id" v-model="selectedCompanies" class="rounded border-gray-300">
+                  </td>
+                  <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{{ company.name }}</td>
+                  <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{{ company.creditCode }}</td>
+                  <td class="px-6 py-4 whitespace-nowrap">
+                    <span :class="['px-2 py-1 text-xs rounded-full border', getRiskLevelClass(company.currentLevel)]">
+                      {{ company.currentLevel }}
+                    </span>
+                  </td>
+                  <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{{ company.riskCount }}</td>
+                  <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{{ company.lastAdjustTime || '未调整' }}</td>
+                  <td class="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                    <button @click="showAdjustModal(company)" class="text-blue-600 hover:text-blue-900">
+                      <i class="fas fa-edit mr-1"></i>调整等级
+                    </button>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
           </div>
         </div>
       </main>
