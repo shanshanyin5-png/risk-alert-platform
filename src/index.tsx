@@ -762,6 +762,139 @@ app.post('/api/risks/manual', async (c) => {
   }
 });
 
+// 12.5. 批量导入风险信息API
+app.post('/api/risks/import', async (c) => {
+  try {
+    const { env } = c;
+    const body = await c.req.json();
+    const risks = body.risks || [];
+    
+    if (!Array.isArray(risks) || risks.length === 0) {
+      return c.json<ApiResponse>({
+        success: false,
+        error: '没有有效的导入数据'
+      }, 400);
+    }
+    
+    const results = {
+      total: risks.length,
+      success: 0,
+      failed: 0,
+      errors: [] as Array<{ row: number; error: string; data: any }>
+    };
+    
+    // 逐条插入数据
+    for (let i = 0; i < risks.length; i++) {
+      const risk = risks[i];
+      const rowNum = i + 1;
+      
+      try {
+        // 数据校验
+        if (!risk.company_name) {
+          results.failed++;
+          results.errors.push({
+            row: rowNum,
+            error: '公司名称不能为空',
+            data: risk
+          });
+          continue;
+        }
+        
+        if (!risk.title) {
+          results.failed++;
+          results.errors.push({
+            row: rowNum,
+            error: '标题不能为空',
+            data: risk
+          });
+          continue;
+        }
+        
+        // 风险等级验证
+        const validLevels = ['高风险', '中风险', '低风险', 'high', 'medium', 'low'];
+        let riskLevel = risk.risk_level || 'medium';
+        
+        // 转换中文等级到英文
+        const levelMap: Record<string, string> = {
+          '高风险': 'high',
+          '中风险': 'medium',
+          '低风险': 'low'
+        };
+        
+        if (levelMap[riskLevel]) {
+          riskLevel = levelMap[riskLevel];
+        }
+        
+        if (!validLevels.includes(riskLevel)) {
+          results.failed++;
+          results.errors.push({
+            row: rowNum,
+            error: `无效的风险等级: ${risk.risk_level}，必须是"高风险"、"中风险"或"低风险"`,
+            data: risk
+          });
+          continue;
+        }
+        
+        // 日期验证和处理
+        let riskTime = risk.risk_time;
+        if (riskTime) {
+          const date = new Date(riskTime);
+          if (isNaN(date.getTime())) {
+            results.failed++;
+            results.errors.push({
+              row: rowNum,
+              error: `无效的日期格式: ${riskTime}`,
+              data: risk
+            });
+            continue;
+          }
+          riskTime = date.toISOString();
+        } else {
+          riskTime = new Date().toISOString();
+        }
+        
+        // 插入数据
+        await env.DB.prepare(`
+          INSERT INTO risks (
+            company_name, title, risk_item, risk_time, source,
+            risk_level, risk_reason, remark, source_type, source_url
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'import', ?)
+        `).bind(
+          risk.company_name.trim(),
+          risk.title.trim(),
+          risk.risk_item || '',
+          riskTime,
+          risk.source || 'Excel导入',
+          riskLevel,
+          risk.risk_reason || '',
+          risk.remark || '',
+          risk.source_url || ''
+        ).run();
+        
+        results.success++;
+      } catch (error: any) {
+        results.failed++;
+        results.errors.push({
+          row: rowNum,
+          error: `数据库错误: ${error.message}`,
+          data: risk
+        });
+      }
+    }
+    
+    return c.json<ApiResponse>({
+      success: true,
+      message: `导入完成：成功 ${results.success} 条，失败 ${results.failed} 条`,
+      data: results
+    });
+  } catch (error: any) {
+    return c.json<ApiResponse>({ 
+      success: false, 
+      error: `导入失败: ${error.message}` 
+    }, 500);
+  }
+});
+
 // 13. 更新风险信息API
 app.put('/api/risks/:id', async (c) => {
   try {

@@ -62,6 +62,12 @@ const App = {
       enabled: true
     });
 
+    // ========== 新增：风险信息导入 ==========
+    const showImportModal = ref(false);
+    const importFile = ref(null);
+    const importProgress = ref(0);
+    const importResult = ref(null);
+
     // ========== 新增：风险等级调整 ==========
     const riskLevelList = ref([]);
     const showRiskLevelModal = ref(false);
@@ -756,6 +762,11 @@ const App = {
       resetManualRisk,
       fetchRecentManualRisks,
       handleTabChange,
+      // 新增：导入功能
+      showImportModal,
+      importFile,
+      importProgress,
+      importResult,
       // 导出功能
       exportRisks: () => {
         if (typeof window.exportRiskList === 'function') {
@@ -763,6 +774,119 @@ const App = {
         } else {
           alert('导出功能加载失败，请刷新页面后重试');
         }
+      },
+      
+      // 导入相关方法
+      handleImportFileChange: (event) => {
+        importFile.value = event.target.files[0];
+      },
+      
+      downloadImportTemplate: () => {
+        // 创建模板数据
+        const template = [
+          {
+            '公司名称': '示例公司',
+            '标题': '示例风险标题',
+            '风险事项': '这是风险事项的详细描述...',
+            '风险等级': '中风险',
+            '风险时间': '2025-12-31',
+            '来源': '示例来源',
+            '来源链接': 'https://example.com',
+            '风险原因': '风险原因分析',
+            '备注': '备注信息'
+          }
+        ];
+        
+        // 创建工作簿
+        const wb = XLSX.utils.book_new();
+        const ws = XLSX.utils.json_to_sheet(template);
+        
+        // 设置列宽
+        ws['!cols'] = [
+          { wch: 20 }, // 公司名称
+          { wch: 30 }, // 标题
+          { wch: 50 }, // 风险事项
+          { wch: 10 }, // 风险等级
+          { wch: 12 }, // 风险时间
+          { wch: 15 }, // 来源
+          { wch: 30 }, // 来源链接
+          { wch: 30 }, // 风险原因
+          { wch: 20 }  // 备注
+        ];
+        
+        XLSX.utils.book_append_sheet(wb, ws, '风险信息导入模板');
+        XLSX.writeFile(wb, '风险信息导入模板.xlsx');
+      },
+      
+      startImport: async () => {
+        if (!importFile.value) {
+          alert('请先选择要导入的Excel文件');
+          return;
+        }
+        
+        try {
+          importProgress.value = 10;
+          
+          // 读取Excel文件
+          const data = await importFile.value.arrayBuffer();
+          const workbook = XLSX.read(data, { type: 'array' });
+          const sheetName = workbook.SheetNames[0];
+          const worksheet = workbook.Sheets[sheetName];
+          const jsonData = XLSX.utils.sheet_to_json(worksheet);
+          
+          if (jsonData.length === 0) {
+            alert('Excel文件中没有数据');
+            return;
+          }
+          
+          importProgress.value = 30;
+          
+          // 转换数据格式
+          const risks = jsonData.map(row => ({
+            company_name: row['公司名称'] || row['company_name'],
+            title: row['标题'] || row['title'],
+            risk_item: row['风险事项'] || row['risk_item'] || '',
+            risk_level: row['风险等级'] || row['risk_level'] || '中风险',
+            risk_time: row['风险时间'] || row['risk_time'] || new Date().toISOString().split('T')[0],
+            source: row['来源'] || row['source'] || 'Excel导入',
+            source_url: row['来源链接'] || row['source_url'] || '',
+            risk_reason: row['风险原因'] || row['risk_reason'] || '',
+            remark: row['备注'] || row['remark'] || ''
+          }));
+          
+          importProgress.value = 50;
+          
+          // 调用API导入
+          const response = await axios.post('/api/risks/import', { risks });
+          
+          importProgress.value = 100;
+          
+          if (response.data.success) {
+            importResult.value = response.data.data;
+            alert(response.data.message);
+            
+            // 如果全部成功，关闭模态框并刷新列表
+            if (importResult.value.failed === 0) {
+              showImportModal.value = false;
+              fetchRisks(true);
+              importFile.value = null;
+              importProgress.value = 0;
+              importResult.value = null;
+            }
+          } else {
+            alert(`导入失败: ${response.data.error}`);
+          }
+        } catch (error) {
+          console.error('导入失败:', error);
+          alert(`导入失败: ${error.message}`);
+        }
+      },
+      
+      closeImportModal: () => {
+        showImportModal.value = false;
+        importFile.value = null;
+        importProgress.value = 0;
+        importResult.value = null;
       }
     };
   },
@@ -934,15 +1058,23 @@ const App = {
 
         <!-- 风险列表 -->
         <div v-show="activeTab === 'risks'">
-          <!-- 标题和导出按钮 -->
+          <!-- 标题和导入导出按钮 -->
           <div class="flex justify-between items-center mb-4">
             <h2 class="text-2xl font-bold text-gray-800">风险信息列表</h2>
-            <button 
-              @click="exportRisks" 
-              class="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors"
-            >
-              <i class="fas fa-download mr-2"></i>导出Excel
-            </button>
+            <div class="space-x-2">
+              <button 
+                @click="showImportModal = true" 
+                class="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+              >
+                <i class="fas fa-upload mr-2"></i>导入Excel
+              </button>
+              <button 
+                @click="exportRisks" 
+                class="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors"
+              >
+                <i class="fas fa-download mr-2"></i>导出Excel
+              </button>
+            </div>
           </div>
           
           <!-- 筛选条件 -->
@@ -1057,6 +1189,131 @@ const App = {
             >
               <i class="fas fa-chevron-right"></i>
             </button>
+          </div>
+        </div>
+
+        <!-- 风险信息导入模态框 -->
+        <div v-if="showImportModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div class="bg-white rounded-lg p-8 max-w-2xl w-full mx-4">
+            <div class="flex justify-between items-center mb-6">
+              <h3 class="text-xl font-bold text-gray-800">
+                <i class="fas fa-upload mr-2 text-green-600"></i>批量导入风险信息
+              </h3>
+              <button @click="closeImportModal" class="text-gray-400 hover:text-gray-600">
+                <i class="fas fa-times text-xl"></i>
+              </button>
+            </div>
+            
+            <div class="space-y-6">
+              <!-- 模板下载 -->
+              <div class="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                <div class="flex items-start">
+                  <i class="fas fa-info-circle text-blue-500 mt-1 mr-3"></i>
+                  <div class="flex-1">
+                    <h4 class="font-medium text-blue-900 mb-2">使用说明</h4>
+                    <ul class="text-sm text-blue-800 space-y-1 mb-3">
+                      <li>1. 下载Excel导入模板</li>
+                      <li>2. 按照模板格式填写数据</li>
+                      <li>3. 上传填写好的Excel文件</li>
+                      <li>4. 点击"开始导入"进行批量导入</li>
+                    </ul>
+                    <button 
+                      @click="downloadImportTemplate"
+                      class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm"
+                    >
+                      <i class="fas fa-download mr-2"></i>下载导入模板
+                    </button>
+                  </div>
+                </div>
+              </div>
+              
+              <!-- 文件上传 -->
+              <div>
+                <label class="block text-sm font-medium text-gray-700 mb-2">
+                  选择Excel文件
+                </label>
+                <div class="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center hover:border-green-500 transition-colors">
+                  <input 
+                    type="file" 
+                    @change="handleImportFileChange"
+                    accept=".xlsx,.xls"
+                    class="hidden"
+                    id="importFileInput"
+                  >
+                  <label for="importFileInput" class="cursor-pointer">
+                    <i class="fas fa-cloud-upload-alt text-4xl text-gray-400 mb-2"></i>
+                    <p class="text-gray-600">点击选择文件或拖拽文件到这里</p>
+                    <p class="text-sm text-gray-500 mt-1">支持 .xlsx 和 .xls 格式，最大 10MB</p>
+                  </label>
+                  <div v-if="importFile" class="mt-4 text-sm text-green-600">
+                    <i class="fas fa-check-circle mr-1"></i>
+                    已选择: {{ importFile.name }}
+                  </div>
+                </div>
+              </div>
+              
+              <!-- 进度条 -->
+              <div v-if="importProgress > 0" class="space-y-2">
+                <div class="flex justify-between text-sm text-gray-600">
+                  <span>导入进度</span>
+                  <span>{{ importProgress }}%</span>
+                </div>
+                <div class="w-full bg-gray-200 rounded-full h-2">
+                  <div 
+                    class="bg-green-600 h-2 rounded-full transition-all duration-300"
+                    :style="{ width: importProgress + '%' }"
+                  ></div>
+                </div>
+              </div>
+              
+              <!-- 导入结果 -->
+              <div v-if="importResult" class="bg-gray-50 rounded-lg p-4">
+                <h4 class="font-medium text-gray-800 mb-3">导入结果</h4>
+                <div class="grid grid-cols-3 gap-4 text-center">
+                  <div class="bg-white rounded-lg p-3">
+                    <div class="text-2xl font-bold text-blue-600">{{ importResult.total }}</div>
+                    <div class="text-sm text-gray-600">总条数</div>
+                  </div>
+                  <div class="bg-white rounded-lg p-3">
+                    <div class="text-2xl font-bold text-green-600">{{ importResult.success }}</div>
+                    <div class="text-sm text-gray-600">成功</div>
+                  </div>
+                  <div class="bg-white rounded-lg p-3">
+                    <div class="text-2xl font-bold text-red-600">{{ importResult.failed }}</div>
+                    <div class="text-sm text-gray-600">失败</div>
+                  </div>
+                </div>
+                
+                <!-- 错误列表 -->
+                <div v-if="importResult.errors && importResult.errors.length > 0" class="mt-4">
+                  <h5 class="font-medium text-red-600 mb-2">错误详情：</h5>
+                  <div class="max-h-40 overflow-y-auto bg-white rounded border border-red-200 p-3 space-y-2">
+                    <div v-for="(error, index) in importResult.errors" :key="index" class="text-sm">
+                      <span class="text-red-600 font-medium">第{{ error.row }}行:</span>
+                      <span class="text-gray-700">{{ error.error }}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              
+              <!-- 操作按钮 -->
+              <div class="flex space-x-3">
+                <button 
+                  @click="startImport"
+                  :disabled="!importFile || importProgress > 0"
+                  class="flex-1 px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <i class="fas fa-upload mr-2"></i>
+                  {{ importProgress > 0 ? '导入中...' : '开始导入' }}
+                </button>
+                <button 
+                  @click="closeImportModal"
+                  class="px-6 py-3 bg-gray-300 text-gray-700 rounded-lg hover:bg-gray-400 transition-colors"
+                >
+                  取消
+                </button>
+              </div>
+            </div>
           </div>
         </div>
 
