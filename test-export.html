@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>测试导出</title>
+    <script src="https://cdn.jsdelivr.net/npm/axios@1.6.7/dist/axios.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+</head>
+<body>
+    <h1>导出功能测试</h1>
+    <button onclick="testExport()">测试导出</button>
+    
+    <script src="/static/app-extensions.js"></script>
+    <script>
+        async function testExport() {
+            console.log('开始测试导出...');
+            console.log('window.exportRiskList:', typeof window.exportRiskList);
+            console.log('window.showLoading:', typeof window.showLoading);
+            console.log('window.XLSX:', typeof window.XLSX);
+            
+            if (typeof window.exportRiskList === 'function') {
+                const filters = { company: '', level: '', keyword: '' };
+                const pagination = { total: 100 };
+                await window.exportRiskList(filters, pagination);
+            } else {
+                alert('exportRiskList 函数未定义');
+            }
+        }
+    </script>
+</body>
+</html>

@@ -842,6 +842,7 @@ app.get('/', (c) => {
     <div id="app"></div>
     <script src="/static/app.js"></script>
     <script src="/static/app-extensions.js"></script>
+    <script src="/static/export-fix.js"></script>
 </body>
 </html>
   `)

@@ -930,7 +930,7 @@ const App = {
           <div class="flex justify-between items-center mb-4">
             <h2 class="text-2xl font-bold text-gray-800">风险信息列表</h2>
             <button 
-              @click="() => window.exportRiskList(filters, pagination)" 
+              @click="() => window.simpleExportRiskList()" 
               class="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors"
             >
               <i class="fas fa-download mr-2"></i>导出Excel
