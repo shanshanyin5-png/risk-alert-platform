@@ -55,7 +55,7 @@ window.exportToExcel = function(data, headers, filename) {
 };
 
 // ========== 显示加载提示 ==========
-function showLoading(message = '正在处理，请稍候...') {
+window.showLoading = function(message = '正在处理，请稍候...') {
   const loadingEl = document.createElement('div');
   loadingEl.id = 'export-loading';
   loadingEl.innerHTML = `
@@ -72,7 +72,7 @@ function showLoading(message = '正在处理，请稍候...') {
   return loadingEl;
 }
 
-function hideLoading() {
+window.hideLoading = function() {
   const loadingEl = document.getElementById('export-loading');
   if (loadingEl) {
     document.body.removeChild(loadingEl);
@@ -81,11 +81,10 @@ function hideLoading() {
 
 // ========== 导出当前筛选的风险列表 ==========
 window.exportRiskList = async function(filters, pagination) {
-  let loadingEl = null;
   try {
     console.log('开始导出风险列表...', filters);
     
-    loadingEl = showLoading('正在获取数据...');
+    window.showLoading('正在获取数据...');
     
     // 获取所有数据（不分页）
     const response = await axios.get('/api/risks', {
@@ -103,17 +102,17 @@ window.exportRiskList = async function(filters, pagination) {
     const risks = response.data.data;
     
     if (!risks || risks.length === 0) {
-      hideLoading();
+      window.hideLoading();
       alert('没有数据可导出');
       return;
     }
     
     // 确认导出
-    hideLoading();
+    window.hideLoading();
     const confirmed = confirm(`是否导出当前筛选条件下的所有数据？共 ${risks.length} 条`);
     if (!confirmed) return;
     
-    loadingEl = showLoading(`正在导出 ${risks.length} 条数据...`);
+    window.showLoading(`正在导出 ${risks.length} 条数据...`);
     
     // 定义表头（用于Excel第一行）
     const headers = ['ID', '公司名称', '标题', '风险事项', '风险等级', '风险时间', '来源', '原文链接', '创建时间'];
@@ -136,7 +135,7 @@ window.exportRiskList = async function(filters, pagination) {
     // 导出
     exportToExcel(exportData, headers, '风险信息列表');
     
-    hideLoading();
+    window.hideLoading();
     
     // 成功提示
     setTimeout(() => {
@@ -144,7 +143,7 @@ window.exportRiskList = async function(filters, pagination) {
     }, 100);
     
   } catch (error) {
-    hideLoading();
+    window.hideLoading();
     console.error('导出失败:', error);
     alert('导出失败: ' + error.message);
   }
@@ -152,9 +151,8 @@ window.exportRiskList = async function(filters, pagination) {
 
 // ========== 导出公司列表 ==========
 window.exportCompanyList = async function() {
-  let loadingEl = null;
   try {
-    loadingEl = showLoading('正在获取企业数据...');
+    window.showLoading('正在获取企业数据...');
     
     const response = await axios.get('/api/risk-level/companies');
     
@@ -165,16 +163,16 @@ window.exportCompanyList = async function() {
     const companies = response.data.data;
     
     if (!companies || companies.length === 0) {
-      hideLoading();
+      window.hideLoading();
       alert('没有数据可导出');
       return;
     }
     
-    hideLoading();
+    window.hideLoading();
     const confirmed = confirm(`是否导出企业信息？共 ${companies.length} 条`);
     if (!confirmed) return;
     
-    loadingEl = showLoading('正在导出企业信息...');
+    window.showLoading('正在导出企业信息...');
     
     const headers = ['企业名称', '统一社会信用代码', '当前风险等级', '风险数量', '最后调整时间', '调整人'];
     
@@ -189,13 +187,13 @@ window.exportCompanyList = async function() {
     
     exportToExcel(exportData, headers, '企业信息列表');
     
-    hideLoading();
+    window.hideLoading();
     setTimeout(() => {
       alert(`✅ 成功导出 ${companies.length} 家企业信息`);
     }, 100);
     
   } catch (error) {
-    hideLoading();
+    window.hideLoading();
     console.error('导出失败:', error);
     alert('导出失败: ' + error.message);
   }
@@ -203,9 +201,8 @@ window.exportCompanyList = async function() {
 
 // ========== 导出爬取网站源列表 ==========
 window.exportDataSourceList = async function() {
-  let loadingEl = null;
   try {
-    loadingEl = showLoading('正在获取数据源配置...');
+    window.showLoading('正在获取数据源配置...');
     
     const response = await axios.get('/api/datasources');
     
@@ -216,16 +213,16 @@ window.exportDataSourceList = async function() {
     const datasources = response.data.data;
     
     if (!datasources || datasources.length === 0) {
-      hideLoading();
+      window.hideLoading();
       alert('没有数据可导出');
       return;
     }
     
-    hideLoading();
+    window.hideLoading();
     const confirmed = confirm(`是否导出数据源配置？共 ${datasources.length} 条`);
     if (!confirmed) return;
     
-    loadingEl = showLoading('正在导出数据源配置...');
+    window.showLoading('正在导出数据源配置...');
     
     const headers = ['网站名称', '爬取地址', 'XPath规则', '状态', '爬取间隔(秒)', '成功率(%)', '最近爬取时间'];
     
@@ -241,13 +238,13 @@ window.exportDataSourceList = async function() {
     
     exportToExcel(exportData, headers, '爬取网站源配置');
     
-    hideLoading();
+    window.hideLoading();
     setTimeout(() => {
       alert(`✅ 成功导出 ${datasources.length} 个数据源配置`);
     }, 100);
     
   } catch (error) {
-    hideLoading();
+    window.hideLoading();
     console.error('导出失败:', error);
     alert('导出失败: ' + error.message);
   }
@@ -255,9 +252,8 @@ window.exportDataSourceList = async function() {
 
 // ========== 导出风险等级调整历史 ==========
 window.exportRiskLevelHistory = async function() {
-  let loadingEl = null;
   try {
-    loadingEl = showLoading('正在获取调整历史...');
+    window.showLoading('正在获取调整历史...');
     
     const response = await axios.get('/api/risk-level/history');
     
@@ -268,16 +264,16 @@ window.exportRiskLevelHistory = async function() {
     const history = response.data.data;
     
     if (!history || history.length === 0) {
-      hideLoading();
+      window.hideLoading();
       alert('没有数据可导出');
       return;
     }
     
-    hideLoading();
+    window.hideLoading();
     const confirmed = confirm(`是否导出风险等级调整历史？共 ${history.length} 条`);
     if (!confirmed) return;
     
-    loadingEl = showLoading('正在导出调整历史...');
+    window.showLoading('正在导出调整历史...');
     
     const headers = ['企业名称', '调整前等级', '调整后等级', '调整原因', '调整人', '调整时间'];
     
@@ -292,13 +288,13 @@ window.exportRiskLevelHistory = async function() {
     
     exportToExcel(exportData, headers, '风险等级调整历史');
     
-    hideLoading();
+    window.hideLoading();
     setTimeout(() => {
       alert(`✅ 成功导出 ${history.length} 条调整历史`);
     }, 100);
     
   } catch (error) {
-    hideLoading();
+    window.hideLoading();
     console.error('导出失败:', error);
     alert('导出失败: ' + error.message);
   }
