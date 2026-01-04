@@ -48,6 +48,14 @@ const App = {
 
     // ========== 新增：爬取网站源管理 ==========
     const dataSources = ref([]);
+    
+    // 一键更新状态
+    const isUpdating = ref(false);
+    const updateProgress = ref({
+      total: 0,
+      current: 0,
+      message: ''
+    });
     const showDataSourceModal = ref(false);
     const currentDataSource = ref(null);
     const dataSourceForm = reactive({
@@ -485,6 +493,61 @@ const App = {
       }
     };
 
+    // 一键更新所有数据源
+    const updateAllDataSources = async () => {
+      if (isUpdating.value) {
+        alert('正在更新中，请勿重复点击');
+        return;
+      }
+
+      if (!confirm('确定要更新所有数据源吗？这可能需要几分钟时间。')) {
+        return;
+      }
+
+      isUpdating.value = true;
+      updateProgress.value = {
+        total: dataSources.value.length,
+        current: 0,
+        message: '准备开始更新...'
+      };
+
+      try {
+        const response = await axios.post(`${API_BASE}/crawl/all`);
+        
+        if (response.data.success) {
+          updateProgress.value.message = '更新完成！';
+          const results = response.data.data;
+          
+          // 显示结果摘要
+          const summary = `
+更新完成！
+- 成功: ${results.success}
+- 失败: ${results.failed}
+- 新增风险: ${results.totalRisks}
+          `.trim();
+          
+          alert(summary);
+          
+          // 刷新数据
+          await fetchStatistics();
+          await fetchRisks(true);
+          await fetchDataSources();
+        } else {
+          throw new Error(response.data.error || '更新失败');
+        }
+      } catch (error) {
+        console.error('更新数据源失败:', error);
+        alert('更新失败: ' + (error.response?.data?.error || error.message));
+      } finally {
+        isUpdating.value = false;
+        updateProgress.value = {
+          total: 0,
+          current: 0,
+          message: ''
+        };
+      }
+    };
+
     const showAddDataSource = () => {
       showDataSourceModal.value = true;
       currentDataSource.value = null;
@@ -742,6 +805,9 @@ const App = {
       editDataSource,
       deleteDataSource,
       testDataSource,
+      isUpdating,
+      updateProgress,
+      updateAllDataSources,
       // 新增：风险等级调整
       riskLevelList,
       riskLevelFilters,
@@ -958,6 +1024,39 @@ const App = {
       <main class="container mx-auto px-6 py-6">
         <!-- 监控大屏 -->
         <div v-show="activeTab === 'dashboard'">
+          <!-- 一键更新按钮 -->
+          <div class="mb-6 flex justify-between items-center">
+            <h2 class="text-2xl font-bold text-gray-800">
+              <i class="fas fa-chart-pie mr-2"></i>实时监控大屏
+            </h2>
+            <button 
+              @click="updateAllDataSources" 
+              :disabled="isUpdating"
+              class="px-6 py-3 bg-gradient-to-r from-blue-500 to-blue-600 text-white rounded-lg hover:from-blue-600 hover:to-blue-700 transition-all shadow-lg hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2"
+            >
+              <i :class="['fas', isUpdating ? 'fa-sync fa-spin' : 'fa-sync-alt']"></i>
+              <span>{{ isUpdating ? '正在更新中...' : '一键更新数据' }}</span>
+            </button>
+          </div>
+          
+          <!-- 更新状态提示 -->
+          <div v-if="updateStatus.show" 
+               :class="['mb-4 p-4 rounded-lg flex items-start space-x-3', 
+                        updateStatus.success ? 'bg-green-50 border border-green-200' : 'bg-red-50 border border-red-200']">
+            <i :class="['fas text-xl', updateStatus.success ? 'fa-check-circle text-green-600' : 'fa-exclamation-circle text-red-600']"></i>
+            <div class="flex-1">
+              <p :class="['font-medium', updateStatus.success ? 'text-green-800' : 'text-red-800']">
+                {{ updateStatus.message }}
+              </p>
+              <p v-if="updateStatus.details" class="text-sm mt-1 text-gray-600">
+                {{ updateStatus.details }}
+              </p>
+            </div>
+            <button @click="updateStatus.show = false" class="text-gray-400 hover:text-gray-600">
+              <i class="fas fa-times"></i>
+            </button>
+          </div>
+          
           <!-- 统计卡片 -->
           <div class="grid grid-cols-1 md:grid-cols-5 gap-4 mb-6">
             <div class="bg-white rounded-lg shadow p-6 border-l-4 border-blue-500">

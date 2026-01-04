@@ -3,6 +3,7 @@ import { cors } from 'hono/cors'
 import { serveStatic } from 'hono/cloudflare-workers'
 import type { Bindings, ApiResponse, Risk, StatisticsData } from './types/bindings'
 import { collectNewsForAllCompanies, saveNewsToDatabase, generateMockNews } from './services/newsCollector'
+import { crawlAndAnalyzeSource, crawlWebpage, analyzeNewsRisk } from './crawler'
 
 const app = new Hono<{ Bindings: Bindings }>()
 
@@ -328,69 +329,193 @@ app.get('/api/datasources', async (c) => {
   }
 })
 
-// 8. 手动触发数据爬取（示例接口）
-app.post('/api/crawl', async (c) => {
-  const { DB } = c.env
+// 7.5 一键更新所有数据源（核心功能）
+app.post('/api/crawl/update-all', async (c) => {
+  const { env } = c
   
   try {
-    const { sourceId, sourceUrl, sourceName, sourceRegion } = await c.req.json()
-
-    // 这里是数据爬取的占位逻辑
-    // 实际使用需要：
-    // 1. 使用 fetch 获取网页内容
-    // 2. 使用 cheerio 或正则解析HTML
-    // 3. 提取标题、内容、时间等信息
-    // 4. 使用AI模型（如GPT）分析风险等级
-    // 5. 插入数据库
-
-    console.log(`开始爬取数据源: ${sourceName} (${sourceUrl})`)
-
-    // 模拟爬取结果
-    const mockData = {
-      title: `【${sourceName}】检测到新的风险信息`,
-      risk_item: '这是从外部媒体爬取的风险信息示例...',
-      company_name: '测试公司',
-      risk_level: '高风险',
-      risk_time: new Date().toISOString().split('T')[0],
-      source: sourceUrl,
-      source_type: 'crawler',
-      source_platform: sourceName,
-      source_region: sourceRegion
+    console.log('🚀 开始一键更新所有数据源...')
+    
+    // 获取所有启用的数据源
+    const sources = await env.DB.prepare(`
+      SELECT id, name, url, category 
+      FROM data_sources 
+      WHERE enabled = 1
+      ORDER BY id
+    `).all()
+    
+    const totalSources = sources.results?.length || 0
+    console.log(`找到 ${totalSources} 个启用的数据源`)
+    
+    if (totalSources === 0) {
+      return c.json<ApiResponse>({
+        success: false,
+        error: '没有启用的数据源'
+      })
     }
-
-    // 插入到数据库
-    await DB.prepare(`
-      INSERT INTO risks (
-        company_name, title, risk_item, risk_time, source,
-        source_type, source_platform, source_region, risk_level
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).bind(
-      mockData.company_name,
-      mockData.title,
-      mockData.risk_item,
-      mockData.risk_time,
-      mockData.source,
-      mockData.source_type,
-      mockData.source_platform,
-      mockData.source_region,
-      mockData.risk_level
-    ).run()
-
-    // 更新数据源的最后爬取时间
-    if (sourceId) {
-      await DB.prepare(`
-        UPDATE data_sources 
-        SET last_crawled_at = CURRENT_TIMESTAMP 
-        WHERE id = ?
-      `).bind(sourceId).run()
+    
+    // 统计信息
+    const stats = {
+      total: totalSources,
+      completed: 0,
+      failed: 0,
+      newRisks: 0,
+      totalArticles: 0,
+      errors: [] as string[]
     }
-
-    return c.json<ApiResponse>({ 
-      success: true, 
-      message: '数据爬取完成',
-      data: mockData
+    
+    // 爬取每个数据源（限制前5个以避免超时）
+    const sourcesToCrawl = (sources.results || []).slice(0, 5)
+    
+    for (const source of sourcesToCrawl) {
+      try {
+        console.log(`正在爬取: ${source.name}`)
+        
+        // 调用爬取函数
+        const result = await crawlAndAnalyzeSource(source as any)
+        
+        if (result.success) {
+          stats.completed++
+          stats.newRisks += result.newRisks || 0
+          stats.totalArticles += result.totalArticles || 0
+          
+          // 保存新发现的风险到数据库
+          if ((result as any).risks && (result as any).risks.length > 0) {
+            for (const risk of (result as any).risks) {
+              await env.DB.prepare(`
+                INSERT INTO risks (
+                  company_name, title, risk_item, risk_level,
+                  risk_time, source, source_url, risk_reason, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+              `).bind(
+                risk.company_name,
+                risk.title,
+                risk.risk_item,
+                risk.risk_level,
+                risk.risk_time,
+                risk.source,
+                risk.source_url,
+                risk.risk_reason
+              ).run()
+            }
+          }
+          
+          // 更新数据源状态
+          await env.DB.prepare(`
+            UPDATE data_sources 
+            SET 
+              last_crawl_time = CURRENT_TIMESTAMP,
+              success_count = success_count + 1,
+              status = 'normal'
+            WHERE id = ?
+          `).bind(source.id).run()
+        } else {
+          stats.failed++
+          stats.errors.push(`${source.name}: ${result.errors.join(', ')}`)
+          
+          // 更新失败次数
+          await env.DB.prepare(`
+            UPDATE data_sources 
+            SET 
+              fail_count = fail_count + 1,
+              status = 'error'
+            WHERE id = ?
+          `).bind(source.id).run()
+        }
+      } catch (err: any) {
+        console.error(`爬取 ${source.name} 失败:`, err.message)
+        stats.failed++
+        stats.errors.push(`${source.name}: ${err.message}`)
+      }
+    }
+    
+    console.log(`✅ 更新完成: ${stats.completed}/${stats.total} 成功, 新增 ${stats.newRisks} 条风险`)
+    
+    return c.json<ApiResponse>({
+      success: true,
+      message: `成功爬取 ${stats.completed} 个数据源，发现 ${stats.newRisks} 条新风险`,
+      data: stats
     })
   } catch (error: any) {
+    console.error('一键更新失败:', error)
+    return c.json<ApiResponse>({
+      success: false,
+      error: error.message
+    }, 500)
+  }
+})
+
+// 8. 手动触发数据爬取（单个数据源）
+// 8. 手动触发数据爬取（单个数据源）
+app.post('/api/crawl', async (c) => {
+  const { env } = c
+  
+  try {
+    const { sourceId } = await c.req.json()
+    
+    if (!sourceId) {
+      return c.json<ApiResponse>({
+        success: false,
+        error: '缺少 sourceId 参数'
+      }, 400)
+    }
+    
+    // 获取数据源信息
+    const source = await env.DB.prepare(`
+      SELECT id, name, url, category 
+      FROM data_sources 
+      WHERE id = ?
+    `).bind(sourceId).first()
+    
+    if (!source) {
+      return c.json<ApiResponse>({
+        success: false,
+        error: '数据源不存在'
+      }, 404)
+    }
+    
+    console.log(`开始爬取单个数据源: ${source.name}`)
+    
+    // 调用爬取函数
+    const result = await crawlAndAnalyzeSource(source as any)
+    
+    // 保存风险到数据库
+    if (result.success && (result as any).risks) {
+      for (const risk of (result as any).risks) {
+        await env.DB.prepare(`
+          INSERT INTO risks (
+            company_name, title, risk_item, risk_level,
+            risk_time, source, source_url, risk_reason, created_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+        `).bind(
+          risk.company_name,
+          risk.title,
+          risk.risk_item,
+          risk.risk_level,
+          risk.risk_time,
+          risk.source,
+          risk.source_url,
+          risk.risk_reason
+        ).run()
+      }
+    }
+    
+    // 更新数据源状态
+    await env.DB.prepare(`
+      UPDATE data_sources 
+      SET 
+        last_crawl_time = CURRENT_TIMESTAMP,
+        ${result.success ? 'success_count = success_count + 1, status = \'normal\'' : 'fail_count = fail_count + 1, status = \'error\''}
+      WHERE id = ?
+    `).bind(sourceId).run()
+    
+    return c.json<ApiResponse>({ 
+      success: result.success, 
+      message: result.success ? `成功爬取，发现 ${result.newRisks} 条新风险` : '爬取失败',
+      data: result
+    })
+  } catch (error: any) {
+    console.error('爬取失败:', error)
     return c.json<ApiResponse>({ 
       success: false, 
       error: error.message 
