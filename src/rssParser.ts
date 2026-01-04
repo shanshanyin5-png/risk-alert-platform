@@ -20,21 +20,66 @@ export interface RSSFeed {
 
 /**
  * 解析 RSS/Atom Feed
+ * 支持多种策略以绕过防爬虫机制
  */
 export async function parseRSSFeed(url: string): Promise<RSSFeed> {
   try {
-    // 获取RSS内容
-    const response = await fetch(url, {
+    console.log(`正在获取RSS: ${url}`)
+    
+    // 策略1: 直接请求
+    let response = await fetch(url, {
       headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'application/rss+xml, application/xml, text/xml, */*',
+        'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+        'Cache-Control': 'no-cache'
       }
     })
     
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`)
+    console.log(`RSS响应状态: ${response.status}`)
+    
+    // 如果直接请求失败，尝试策略2: 使用RSS代理
+    if (!response.ok && response.status >= 400) {
+      console.log('直接请求失败，尝试使用RSS代理...')
+      
+      // 使用 rss2json.com 作为代理（免费版）
+      const proxyUrl = `https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(url)}`
+      
+      const proxyResponse = await fetch(proxyUrl)
+      
+      if (proxyResponse.ok) {
+        const jsonData = await proxyResponse.json() as any
+        
+        if (jsonData.status === 'ok') {
+          console.log(`RSS代理成功，获取到 ${jsonData.items?.length || 0} 条数据`)
+          
+          // 转换JSON为RSSFeed格式
+          return {
+            title: jsonData.feed?.title || 'RSS Feed',
+            description: jsonData.feed?.description || '',
+            link: jsonData.feed?.link || url,
+            items: (jsonData.items || []).map((item: any) => ({
+              title: item.title || 'Untitled',
+              description: cleanHTML(item.description || item.content || ''),
+              link: item.link || '',
+              pubDate: item.pubDate || new Date().toISOString(),
+              content: cleanHTML(item.content || item.description || ''),
+              author: item.author || '',
+              category: item.category?.[0] || ''
+            }))
+          }
+        }
+      }
+      
+      throw new Error(`HTTP ${response.status}: 无法访问RSS源`)
     }
     
     const xmlText = await response.text()
+    console.log(`RSS内容长度: ${xmlText.length}`)
+    
+    if (xmlText.length < 50) {
+      throw new Error('RSS内容为空或太短')
+    }
     
     // 简单的XML解析（不依赖外部库）
     return parseXML(xmlText)

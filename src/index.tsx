@@ -787,6 +787,175 @@ app.delete('/api/datasources/:id', async (c) => {
   }
 })
 
+// 批量导入RSS数据源
+app.post('/api/datasources/batch-import', async (c) => {
+  try {
+    const { env } = c;
+    const { sources } = await c.req.json();
+    
+    if (!sources || !Array.isArray(sources)) {
+      return c.json<ApiResponse>({
+        success: false,
+        error: '数据格式错误，需要sources数组'
+      }, 400);
+    }
+    
+    let successCount = 0;
+    let failCount = 0;
+    const errors: string[] = [];
+    
+    for (const source of sources) {
+      try {
+        await env.DB.prepare(`
+          INSERT INTO data_sources (
+            name, url, category, xpath_rules, field_mapping, enable_js, 
+            user_agent, interval, timeout, enabled, status
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).bind(
+          source.name,
+          source.url,
+          source.category || '新闻媒体',
+          source.xpathRules || '//item',
+          source.fieldMapping || '{"title":"//title","content":"//description","time":"//pubDate"}',
+          source.enableJS ? 1 : 0,
+          source.userAgent || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+          source.interval || 3600,
+          source.timeout || 30,
+          source.enabled !== false ? 1 : 0,
+          'normal'
+        ).run();
+        
+        successCount++;
+      } catch (error: any) {
+        failCount++;
+        errors.push(`${source.name}: ${error.message}`);
+      }
+    }
+    
+    return c.json<ApiResponse>({
+      success: true,
+      message: `批量导入完成：成功 ${successCount} 个，失败 ${failCount} 个`,
+      data: {
+        successCount,
+        failCount,
+        errors: errors.slice(0, 10) // 最多返回10个错误
+      }
+    });
+  } catch (error: any) {
+    return c.json<ApiResponse>({ success: false, error: error.message }, 500);
+  }
+})
+
+// 初始化可靠的RSS数据源
+app.post('/api/datasources/init-reliable', async (c) => {
+  try {
+    const { env } = c;
+    
+    // 定义可靠的RSS源
+    const reliableSources = [
+      {
+        name: 'BBC News - World',
+        url: 'http://feeds.bbci.co.uk/news/world/rss.xml',
+        category: '新闻媒体'
+      },
+      {
+        name: 'Reuters - Business',
+        url: 'https://www.reutersagency.com/feed/?taxonomy=best-topics&post_type=best',
+        category: '新闻媒体'
+      },
+      {
+        name: 'CNN - Top Stories',
+        url: 'http://rss.cnn.com/rss/cnn_topstories.rss',
+        category: '新闻媒体'
+      },
+      {
+        name: 'The Guardian - World',
+        url: 'https://www.theguardian.com/world/rss',
+        category: '新闻媒体'
+      },
+      {
+        name: 'NPR - News',
+        url: 'https://feeds.npr.org/1001/rss.xml',
+        category: '新闻媒体'
+      },
+      {
+        name: 'Al Jazeera - English',
+        url: 'https://www.aljazeera.com/xml/rss/all.xml',
+        category: '新闻媒体'
+      },
+      {
+        name: '新华网 - 英文',
+        url: 'http://www.xinhuanet.com/english/rss.xml',
+        category: '新闻媒体'
+      },
+      {
+        name: 'New York Times - World',
+        url: 'https://rss.nytimes.com/services/xml/rss/nyt/World.xml',
+        category: '新闻媒体'
+      },
+      {
+        name: 'Google News - PMLTC Pakistan',
+        url: 'https://news.google.com/rss/search?q=PMLTC+OR+Matiari+Lahore+HVDC+OR+Pakistan+power&hl=en',
+        category: '搜索引擎RSS'
+      },
+      {
+        name: 'Google News - CPFL Brazil',
+        url: 'https://news.google.com/rss/search?q=CPFL+Brazil+OR+Grupo+CPFL&hl=pt',
+        category: '搜索引擎RSS'
+      },
+      {
+        name: 'Google News - NGCP Philippines',
+        url: 'https://news.google.com/rss/search?q=NGCP+Philippines+OR+National+Grid+Philippines&hl=en',
+        category: '搜索引擎RSS'
+      },
+      {
+        name: 'Google News - 国家电网',
+        url: 'https://news.google.com/rss/search?q=国家电网+OR+State+Grid+OR+SGCC&hl=zh-CN',
+        category: '搜索引擎RSS'
+      }
+    ];
+    
+    // 先删除所有旧数据源
+    await env.DB.prepare(`DELETE FROM data_sources`).run();
+    
+    let successCount = 0;
+    for (const source of reliableSources) {
+      try {
+        await env.DB.prepare(`
+          INSERT INTO data_sources (
+            name, url, category, xpath_rules, field_mapping, enable_js, 
+            user_agent, interval, timeout, enabled, status
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).bind(
+          source.name,
+          source.url,
+          source.category,
+          '//item',
+          '{"title":"//title","content":"//description","time":"//pubDate"}',
+          0,
+          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+          3600,
+          30,
+          1,
+          'normal'
+        ).run();
+        
+        successCount++;
+      } catch (error: any) {
+        console.error(`导入数据源失败 (${source.name}):`, error.message);
+      }
+    }
+    
+    return c.json<ApiResponse>({
+      success: true,
+      message: `成功初始化 ${successCount}/${reliableSources.length} 个可靠RSS数据源`,
+      data: { count: successCount }
+    });
+  } catch (error: any) {
+    return c.json<ApiResponse>({ success: false, error: error.message }, 500);
+  }
+})
+
 // 11. 风险等级调整API
 app.get('/api/risk-level/companies', async (c) => {
   const { env } = c
