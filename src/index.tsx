@@ -5,6 +5,8 @@ import type { Bindings, ApiResponse, Risk, StatisticsData } from './types/bindin
 import { collectNewsForAllCompanies, saveNewsToDatabase, generateMockNews } from './services/newsCollector'
 // 使用免费的基于规则的分析器，不依赖 OpenAI API
 import { analyzeNewsRisk } from './ruleBasedAnalyzer'
+// RSS解析器
+import { parseRSSFeed } from './rssParser'
 import * as cheerio from 'cheerio'
 
 const app = new Hono<{ Bindings: Bindings }>()
@@ -335,45 +337,67 @@ app.get('/api/datasources', async (c) => {
 // 简化的爬取函数（不依赖外部API）
 async function crawlAndAnalyze(source: any, env: any) {
   try {
-    // 1. 爬取网页
     console.log(`正在爬取: ${source.url}`)
-    const response = await fetch(source.url, {
-      headers: {
-        'User-Agent': source.user_agent || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-      }
-    })
     
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`)
+    let articles: any[] = []
+    
+    // 判断是RSS源还是HTML源
+    const isRSS = source.category?.includes('RSS') || 
+                  source.url.includes('/rss') || 
+                  source.url.includes('/feed') ||
+                  source.url.includes('news.google.com/rss')
+    
+    if (isRSS) {
+      // RSS解析
+      console.log('使用RSS解析器')
+      const feed = await parseRSSFeed(source.url)
+      
+      articles = feed.items.map(item => ({
+        title: item.title,
+        content: item.description || item.content || '',
+        url: item.link,
+        time: new Date(item.pubDate).toISOString().split('T')[0]
+      }))
+      
+      console.log(`RSS解析成功，提取到 ${articles.length} 篇文章`)
+    } else {
+      // HTML爬取
+      console.log('使用HTML爬取')
+      const response = await fetch(source.url, {
+        headers: {
+          'User-Agent': source.user_agent || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        }
+      })
+      
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`)
+      }
+      
+      const html = await response.text()
+      const $ = cheerio.load(html)
+      
+      const xpathRules = source.xpath_rules || source.xpathRules || '//article'
+      
+      $(xpathRules.split('|').map((s: string) => s.trim().replace('//', '')).join(',')).each((_, el) => {
+        const $el = $(el)
+        const title = $el.find('h1, h2, h3').first().text().trim() || $el.text().substring(0, 100)
+        const content = $el.find('p').text().trim() || $el.text().trim()
+        const link = $el.find('a').first().attr('href') || ''
+        
+        if (title.length > 10) {
+          articles.push({
+            title,
+            content: content.substring(0, 500),
+            url: link.startsWith('http') ? link : new URL(link, source.url).href,
+            time: new Date().toISOString().split('T')[0]
+          })
+        }
+      })
+      
+      console.log(`HTML爬取成功，提取到 ${articles.length} 篇文章`)
     }
     
-    const html = await response.text()
-    const $ = cheerio.load(html)
-    
-    // 2. 提取新闻列表
-    const articles: any[] = []
-    const xpathRules = source.xpath_rules || source.xpathRules || '//article'
-    
-    // 简单的选择器（支持article, div.news, h2/h3等）
-    $(xpathRules.split('|').map((s: string) => s.trim().replace('//', '')).join(',')).each((_, el) => {
-      const $el = $(el)
-      const title = $el.find('h1, h2, h3').first().text().trim() || $el.text().substring(0, 100)
-      const content = $el.find('p').text().trim() || $el.text().trim()
-      const link = $el.find('a').first().attr('href') || ''
-      
-      if (title.length > 10) {
-        articles.push({
-          title,
-          content: content.substring(0, 500),
-          url: link.startsWith('http') ? link : new URL(link, source.url).href,
-          time: new Date().toISOString().split('T')[0]
-        })
-      }
-    })
-    
-    console.log(`提取到 ${articles.length} 篇文章`)
-    
-    // 3. 使用规则分析器分析风险
+    // 使用规则分析器分析风险
     const risks: any[] = []
     for (const article of articles.slice(0, 20)) { // 限制20篇
       const analysis = await analyzeNewsRisk(article.title, article.content, article.time)
