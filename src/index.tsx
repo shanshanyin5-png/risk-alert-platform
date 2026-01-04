@@ -314,7 +314,7 @@ app.get('/api/datasources', async (c) => {
         last_crawl_time as lastCrawlTime,
         success_rate as successRate,
         created_at as createdAt
-      FROM news_sources
+      FROM data_sources
       ORDER BY created_at DESC
     `).all();
     
@@ -489,7 +489,7 @@ app.post('/api/datasources', async (c) => {
     const body = await c.req.json();
     
     const result = await env.DB.prepare(`
-      INSERT INTO news_sources (
+      INSERT INTO data_sources (
         name, url, xpath_rules, field_mapping, enable_js, 
         user_agent, interval, timeout, enabled, status
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -523,7 +523,7 @@ app.put('/api/datasources/:id', async (c) => {
     const body = await c.req.json();
     
     await env.DB.prepare(`
-      UPDATE news_sources 
+      UPDATE data_sources 
       SET name = ?, url = ?, xpath_rules = ?, field_mapping = ?,
           enable_js = ?, user_agent = ?, interval = ?, timeout = ?, 
           enabled = ?, updated_at = CURRENT_TIMESTAMP
@@ -555,7 +555,7 @@ app.delete('/api/datasources/:id', async (c) => {
   const id = c.req.param('id');
   try {
     const { env } = c;
-    await env.DB.prepare(`DELETE FROM news_sources WHERE id = ?`).bind(id).run();
+    await env.DB.prepare(`DELETE FROM data_sources WHERE id = ?`).bind(id).run();
     return c.json<ApiResponse>({
       success: true,
       message: '删除成功'
