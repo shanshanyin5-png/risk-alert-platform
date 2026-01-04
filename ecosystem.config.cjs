@@ -13,6 +13,15 @@ module.exports = {
       exec_mode: 'fork',
       autorestart: true,
       max_memory_restart: '500M'
+    },
+    {
+      name: 'auto-crawler',
+      script: './auto_crawler.cjs',
+      cron_restart: '0 * * * *', // 每小时的0分执行一次
+      autorestart: false,
+      watch: false,
+      instances: 1,
+      exec_mode: 'fork'
     }
   ]
 }
