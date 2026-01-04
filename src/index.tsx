@@ -91,7 +91,7 @@ app.get('/api/risks', async (c) => {
     // 获取数据列表
     const dataQuery = `
       SELECT id, company_name, title, risk_item, risk_time, source, 
-             risk_level, risk_level_review, risk_value_confirm, 
+             source_url, risk_level, 
              substr(risk_reason, 1, 200) as risk_reason_preview,
              created_at
       FROM risks ${whereClause}
@@ -577,7 +577,7 @@ app.post('/api/crawl', async (c) => {
     const result = await crawlAndAnalyze(source, env)
     
     // 保存风险到数据库
-    if (result.success && result.risks.length > 0) {
+    if (result.success && result.risks && result.risks.length > 0) {
       for (const risk of result.risks) {
         await env.DB.prepare(`
           INSERT INTO risks (
@@ -585,14 +585,14 @@ app.post('/api/crawl', async (c) => {
             risk_time, source, source_url, risk_reason, created_at
           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
         `).bind(
-          risk.company_name,
-          risk.title,
-          risk.risk_item,
-          risk.risk_level,
-          risk.time,
-          risk.source,
-          risk.source_url,
-          risk.risk_reason
+          risk.company_name || '未知公司',
+          risk.title || '未知标题',
+          risk.risk_item || '未知风险',
+          risk.risk_level || 'low',
+          risk.risk_time || new Date().toISOString().split('T')[0],
+          risk.source || source.name,
+          risk.source_url || source.url,
+          risk.risk_reason || '规则分析'
         ).run()
       }
     }
