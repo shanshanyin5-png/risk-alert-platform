@@ -1,19 +1,5 @@
-// 新闻爬取和AI风险分析模块
-import OpenAI from 'openai'
+// 新闻爬取模块（完全免费，无需任何付费API）
 import * as cheerio from 'cheerio'
-
-// 初始化OpenAI客户端
-let openaiClient: OpenAI | null = null
-
-function getOpenAIClient() {
-  if (!openaiClient) {
-    openaiClient = new OpenAI({
-      apiKey: process.env.OPENAI_API_KEY || '',
-      baseURL: process.env.OPENAI_BASE_URL || 'https://www.genspark.ai/api/llm_proxy/v1'
-    })
-  }
-  return openaiClient
-}
 
 // 国网及子公司关键词
 const SGCC_KEYWORDS = [
@@ -160,7 +146,7 @@ export async function crawlWebpage(url: string, timeout: number = 30000): Promis
 }
 
 /**
- * 使用AI分析新闻风险
+ * 使用免费规则分析新闻风险（不依赖任何付费API）
  */
 export async function analyzeNewsRisk(title: string, content: string): Promise<{
   isRelevant: boolean
@@ -169,122 +155,91 @@ export async function analyzeNewsRisk(title: string, content: string): Promise<{
   riskItem: string
   reason: string
 }> {
-  try {
-    const client = getOpenAIClient()
-    
-    const prompt = `你是一个专业的风险分析师，专门监控国家电网及其海外子公司的新闻。
-
-分析以下新闻内容，判断：
-1. 是否与国家电网或其子公司相关
-2. 是否是负面新闻
-3. 风险等级（high/medium/low）
-4. 涉及的公司名称
-5. 风险事项摘要
-6. 风险原因说明
-
-国网子公司包括：
-- 巴基斯坦PMLTC公司（Matiari-Lahore输电项目）
-- 巴西CPFL公司
-- 菲律宾NGCP公司
-- 智利CGE公司
-- 葡萄牙REN公司
-- 希腊IPTO公司
-- 香港电灯公司
-- 澳大利亚ElectraNet、Ausgrid等
-
-风险等级判断标准：
-- high（高风险）：重大事故、人员伤亡、项目取消、严重财务问题、重大法律纠纷
-- medium（中风险）：项目延期、一般财务问题、轻微违规、运营问题
-- low（低风险）：政策变化、市场波动、一般运营信息
-
-新闻标题：${title}
-新闻内容：${content.substring(0, 2000)}
-
-请以JSON格式返回结果，格式如下：
-{
-  "isRelevant": true/false,
-  "riskLevel": "high/medium/low",
-  "company": "公司名称",
-  "riskItem": "风险事项摘要（50字以内）",
-  "reason": "风险原因详细说明（200字以内）"
-}
-
-如果不相关或不是负面新闻，返回 {"isRelevant": false}`
-
-    const completion = await client.chat.completions.create({
-      model: 'gpt-5-mini',
-      messages: [
-        { 
-          role: 'system', 
-          content: '你是专业的风险分析师，只返回JSON格式的结果，不要有任何其他文字。' 
-        },
-        { role: 'user', content: prompt }
-      ],
-      temperature: 0.3,
-      max_tokens: 500
-    })
-    
-    const resultText = completion.choices[0].message.content || '{}'
-    
-    // 提取JSON（处理可能的markdown代码块）
-    const jsonMatch = resultText.match(/\{[\s\S]*\}/)
-    if (!jsonMatch) {
-      throw new Error('AI返回格式错误')
-    }
-    
-    const result = JSON.parse(jsonMatch[0])
-    
-    // 验证结果
-    if (!result.isRelevant) {
-      return {
-        isRelevant: false,
-        riskLevel: 'low',
-        company: '',
-        riskItem: '',
-        reason: ''
-      }
-    }
-    
+  // 检查是否包含国网关键词
+  const hasSGCC = containsSGCCKeywords(title + ' ' + content)
+  
+  if (!hasSGCC) {
     return {
-      isRelevant: true,
-      riskLevel: result.riskLevel || 'low',
-      company: result.company || '未知公司',
-      riskItem: result.riskItem || title.substring(0, 50),
-      reason: result.reason || '需要进一步分析'
+      isRelevant: false,
+      riskLevel: 'low',
+      company: '',
+      riskItem: '',
+      reason: ''
     }
-  } catch (error: any) {
-    console.error('AI分析失败:', error.message)
-    
-    // 回退到关键词分析
-    const hasNegative = containsNegativeKeywords(title + ' ' + content)
-    const hasSGCC = containsSGCCKeywords(title + ' ' + content)
-    
-    if (!hasSGCC) {
-      return {
-        isRelevant: false,
-        riskLevel: 'low',
-        company: '',
-        riskItem: '',
-        reason: ''
-      }
-    }
-    
-    // 简单的关键词匹配来提取公司名
-    let company = '国家电网相关'
-    for (const keyword of SGCC_KEYWORDS) {
-      if (title.includes(keyword) || content.includes(keyword)) {
-        company = keyword
-        break
-      }
-    }
-    
+  }
+  
+  // 检查负面关键词
+  const hasNegative = containsNegativeKeywords(title + ' ' + content)
+  
+  if (!hasNegative) {
     return {
-      isRelevant: true,
-      riskLevel: hasNegative ? 'medium' : 'low',
-      company,
-      riskItem: title.substring(0, 50),
-      reason: '基于关键词匹配的风险分析'
+      isRelevant: false,
+      riskLevel: 'low',
+      company: '',
+      riskItem: '',
+      reason: ''
     }
+  }
+  
+  // 提取公司名
+  let company = '国家电网相关'
+  const text = title + ' ' + content
+  
+  // 公司映射
+  const companyMap: { [key: string]: string } = {
+    'PMLTC': '巴基斯坦PMLTC公司',
+    'Pakistan': '巴基斯坦PMLTC公司',
+    'Matiari': '巴基斯坦PMLTC公司',
+    'Lahore': '巴基斯坦PMLTC公司',
+    'CPFL': '巴西CPFL公司',
+    'Brazil': '巴西CPFL公司',
+    'NGCP': '菲律宾NGCP公司',
+    'Philippines': '菲律宾NGCP公司',
+    'CGE': '智利CGE公司',
+    'Chile': '智利CGE公司',
+    'REN': '葡萄牙REN公司',
+    'Portugal': '葡萄牙REN公司',
+    'IPTO': '希腊IPTO公司',
+    'Greece': '希腊IPTO公司',
+    'ElectraNet': '南澳Electranet',
+    'Australia': '澳大利亚澳洲资产公司',
+    'HK Electric': '香港电灯公司',
+    'Hong Kong': '香港电灯公司'
+  }
+  
+  for (const [keyword, name] of Object.entries(companyMap)) {
+    if (text.includes(keyword)) {
+      company = name
+      break
+    }
+  }
+  
+  // 判断风险等级
+  const highRiskKeywords = [
+    '事故', '爆炸', '火灾', '伤亡', '死亡', '破产', '违约',
+    'accident', 'explosion', 'fire', 'death', 'bankruptcy', 'default'
+  ]
+  
+  const mediumRiskKeywords = [
+    '停电', '故障', '延期', '罚款', '诉讼', '亏损',
+    'outage', 'failure', 'delay', 'fine', 'lawsuit', 'loss'
+  ]
+  
+  let riskLevel: 'high' | 'medium' | 'low' = 'low'
+  
+  const lowerText = text.toLowerCase()
+  if (highRiskKeywords.some(k => lowerText.includes(k.toLowerCase()))) {
+    riskLevel = 'high'
+  } else if (mediumRiskKeywords.some(k => lowerText.includes(k.toLowerCase()))) {
+    riskLevel = 'medium'
+  }
+  
+  return {
+    isRelevant: true,
+    riskLevel,
+    company,
+    riskItem: title.substring(0, 50),
+    reason: '基于规则的免费风险分析'
   }
 }
 
