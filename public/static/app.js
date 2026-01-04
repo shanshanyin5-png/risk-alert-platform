@@ -56,6 +56,12 @@ const App = {
       current: 0,
       message: ''
     });
+    const updateStatus = ref({
+      show: false,
+      success: false,
+      message: '',
+      details: ''
+    });
     const showDataSourceModal = ref(false);
     const currentDataSource = ref(null);
     const dataSourceForm = reactive({
@@ -807,6 +813,7 @@ const App = {
       testDataSource,
       isUpdating,
       updateProgress,
+      updateStatus,
       updateAllDataSources,
       // 新增：风险等级调整
       riskLevelList,
