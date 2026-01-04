@@ -3,7 +3,9 @@ import { cors } from 'hono/cors'
 import { serveStatic } from 'hono/cloudflare-workers'
 import type { Bindings, ApiResponse, Risk, StatisticsData } from './types/bindings'
 import { collectNewsForAllCompanies, saveNewsToDatabase, generateMockNews } from './services/newsCollector'
-import { crawlAndAnalyzeSource, crawlWebpage, analyzeNewsRisk } from './crawler'
+// 使用免费的基于规则的分析器，不依赖 OpenAI API
+import { analyzeNewsRisk } from './ruleBasedAnalyzer'
+import * as cheerio from 'cheerio'
 
 const app = new Hono<{ Bindings: Bindings }>()
 
@@ -330,7 +332,94 @@ app.get('/api/datasources', async (c) => {
 })
 
 // 7.5 一键更新所有数据源（核心功能）
-app.post('/api/crawl/update-all', async (c) => {
+// 简化的爬取函数（不依赖外部API）
+async function crawlAndAnalyze(source: any, env: any) {
+  try {
+    // 1. 爬取网页
+    console.log(`正在爬取: ${source.url}`)
+    const response = await fetch(source.url, {
+      headers: {
+        'User-Agent': source.user_agent || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+      }
+    })
+    
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`)
+    }
+    
+    const html = await response.text()
+    const $ = cheerio.load(html)
+    
+    // 2. 提取新闻列表
+    const articles: any[] = []
+    const xpathRules = source.xpath_rules || source.xpathRules || '//article'
+    
+    // 简单的选择器（支持article, div.news, h2/h3等）
+    $(xpathRules.split('|').map((s: string) => s.trim().replace('//', '')).join(',')).each((_, el) => {
+      const $el = $(el)
+      const title = $el.find('h1, h2, h3').first().text().trim() || $el.text().substring(0, 100)
+      const content = $el.find('p').text().trim() || $el.text().trim()
+      const link = $el.find('a').first().attr('href') || ''
+      
+      if (title.length > 10) {
+        articles.push({
+          title,
+          content: content.substring(0, 500),
+          url: link.startsWith('http') ? link : new URL(link, source.url).href,
+          time: new Date().toISOString().split('T')[0]
+        })
+      }
+    })
+    
+    console.log(`提取到 ${articles.length} 篇文章`)
+    
+    // 3. 使用规则分析器分析风险
+    const risks: any[] = []
+    for (const article of articles.slice(0, 20)) { // 限制20篇
+      const analysis = await analyzeNewsRisk(article.title, article.content, article.time)
+      
+      if (analysis.isRelevant) {
+        // 检查是否已存在（去重）
+        const existing = await env.DB.prepare(`
+          SELECT id FROM risks WHERE title = ?
+        `).bind(article.title).first()
+        
+        if (!existing) {
+          risks.push({
+            company_name: analysis.companyName,
+            title: article.title,
+            risk_item: analysis.riskItem,
+            risk_level: analysis.riskLevel,
+            risk_time: article.time,
+            source: source.name,
+            source_url: article.url,
+            risk_reason: analysis.analysis
+          })
+        }
+      }
+    }
+    
+    console.log(`发现 ${risks.length} 条相关风险`)
+    
+    return {
+      success: true,
+      risks,
+      totalArticles: articles.length,
+      newRisks: risks.length
+    }
+  } catch (error: any) {
+    console.error(`爬取失败: ${error.message}`)
+    return {
+      success: false,
+      risks: [],
+      totalArticles: 0,
+      newRisks: 0,
+      error: error.message
+    }
+  }
+}
+
+app.post('/api/crawl/all', async (c) => {
   const { env } = c
   
   try {
@@ -338,7 +427,7 @@ app.post('/api/crawl/update-all', async (c) => {
     
     // 获取所有启用的数据源
     const sources = await env.DB.prepare(`
-      SELECT id, name, url, category 
+      SELECT id, name, url, category, xpath_rules, user_agent
       FROM data_sources 
       WHERE enabled = 1
       ORDER BY id
@@ -355,50 +444,41 @@ app.post('/api/crawl/update-all', async (c) => {
     }
     
     // 统计信息
-    const stats = {
-      total: totalSources,
-      completed: 0,
-      failed: 0,
-      newRisks: 0,
-      totalArticles: 0,
-      errors: [] as string[]
-    }
+    let success = 0
+    let failed = 0
+    let totalRisks = 0
     
-    // 爬取每个数据源（限制前5个以避免超时）
-    const sourcesToCrawl = (sources.results || []).slice(0, 5)
+    // 爬取每个数据源（限制前10个以避免超时）
+    const sourcesToCrawl = (sources.results || []).slice(0, 10)
     
     for (const source of sourcesToCrawl) {
       try {
         console.log(`正在爬取: ${source.name}`)
         
-        // 调用爬取函数
-        const result = await crawlAndAnalyzeSource(source as any)
+        const result = await crawlAndAnalyze(source, env)
         
-        if (result.success) {
-          stats.completed++
-          stats.newRisks += result.newRisks || 0
-          stats.totalArticles += result.totalArticles || 0
-          
-          // 保存新发现的风险到数据库
-          if ((result as any).risks && (result as any).risks.length > 0) {
-            for (const risk of (result as any).risks) {
-              await env.DB.prepare(`
-                INSERT INTO risks (
-                  company_name, title, risk_item, risk_level,
-                  risk_time, source, source_url, risk_reason, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-              `).bind(
-                risk.company_name,
-                risk.title,
-                risk.risk_item,
-                risk.risk_level,
-                risk.risk_time,
-                risk.source,
-                risk.source_url,
-                risk.risk_reason
-              ).run()
-            }
+        if (result.success && result.risks.length > 0) {
+          // 保存风险到数据库
+          for (const risk of result.risks) {
+            await env.DB.prepare(`
+              INSERT INTO risks (
+                company_name, title, risk_item, risk_level,
+                risk_time, source, source_url, risk_reason, created_at
+              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            `).bind(
+              risk.company_name,
+              risk.title,
+              risk.risk_item,
+              risk.risk_level,
+              risk.risk_time,
+              risk.source,
+              risk.source_url,
+              risk.risk_reason
+            ).run()
           }
+          
+          totalRisks += result.newRisks
+          success++
           
           // 更新数据源状态
           await env.DB.prepare(`
@@ -410,31 +490,24 @@ app.post('/api/crawl/update-all', async (c) => {
             WHERE id = ?
           `).bind(source.id).run()
         } else {
-          stats.failed++
-          stats.errors.push(`${source.name}: ${result.errors.join(', ')}`)
-          
-          // 更新失败次数
-          await env.DB.prepare(`
-            UPDATE data_sources 
-            SET 
-              fail_count = fail_count + 1,
-              status = 'error'
-            WHERE id = ?
-          `).bind(source.id).run()
+          failed++
         }
       } catch (err: any) {
         console.error(`爬取 ${source.name} 失败:`, err.message)
-        stats.failed++
-        stats.errors.push(`${source.name}: ${err.message}`)
+        failed++
       }
     }
     
-    console.log(`✅ 更新完成: ${stats.completed}/${stats.total} 成功, 新增 ${stats.newRisks} 条风险`)
+    console.log(`✅ 更新完成: ${success}/${sourcesToCrawl.length} 成功, 新增 ${totalRisks} 条风险`)
     
     return c.json<ApiResponse>({
       success: true,
-      message: `成功爬取 ${stats.completed} 个数据源，发现 ${stats.newRisks} 条新风险`,
-      data: stats
+      message: `更新完成！成功: ${success}, 失败: ${failed}, 新增风险: ${totalRisks}`,
+      data: {
+        success,
+        failed,
+        totalRisks
+      }
     })
   } catch (error: any) {
     console.error('一键更新失败:', error)
@@ -462,7 +535,7 @@ app.post('/api/crawl', async (c) => {
     
     // 获取数据源信息
     const source = await env.DB.prepare(`
-      SELECT id, name, url, category 
+      SELECT id, name, url, category, xpath_rules, user_agent
       FROM data_sources 
       WHERE id = ?
     `).bind(sourceId).first()
@@ -477,11 +550,11 @@ app.post('/api/crawl', async (c) => {
     console.log(`开始爬取单个数据源: ${source.name}`)
     
     // 调用爬取函数
-    const result = await crawlAndAnalyzeSource(source as any)
+    const result = await crawlAndAnalyze(source, env)
     
     // 保存风险到数据库
-    if (result.success && (result as any).risks) {
-      for (const risk of (result as any).risks) {
+    if (result.success && result.risks.length > 0) {
+      for (const risk of result.risks) {
         await env.DB.prepare(`
           INSERT INTO risks (
             company_name, title, risk_item, risk_level,
@@ -492,7 +565,7 @@ app.post('/api/crawl', async (c) => {
           risk.title,
           risk.risk_item,
           risk.risk_level,
-          risk.risk_time,
+          risk.time,
           risk.source,
           risk.source_url,
           risk.risk_reason
