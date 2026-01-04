@@ -575,14 +575,14 @@ app.get('/api/risk-level/companies', async (c) => {
       SELECT 
         id,
         name,
-        creditCode,
-        currentLevel,
-        riskCount,
-        lastAdjustTime,
-        adjustedBy,
-        createdAt
+        credit_code as creditCode,
+        current_level as currentLevel,
+        risk_count as riskCount,
+        last_adjust_time as lastAdjustTime,
+        adjusted_by as adjustedBy,
+        created_at as createdAt
       FROM companies
-      ORDER BY riskCount DESC, name ASC
+      ORDER BY risk_count DESC, name ASC
     `).all()
     
     console.log(`查询到 ${results.length} 家企业`)
@@ -693,15 +693,15 @@ app.get('/api/risk-level/history', async (c) => {
     const { results } = await env.DB.prepare(
       `SELECT 
          id,
-         companyId,
-         companyName,
-         fromLevel,
-         toLevel,
+         company_id as companyId,
+         company_name as companyName,
+         from_level as fromLevel,
+         to_level as toLevel,
          reason,
-         adjustedBy,
-         adjustedAt
+         adjusted_by as adjustedBy,
+         adjusted_at as adjustedAt
        FROM risk_level_history
-       ORDER BY adjustedAt DESC
+       ORDER BY adjusted_at DESC
        LIMIT 100`
     ).all()
     
