@@ -1313,31 +1313,58 @@ app.put('/api/risks/:id', async (c) => {
     
     console.log('更新风险信息 ID:', id, '数据:', body);
     
-    // 验证必填字段
-    if (!body.company_name || !body.title) {
+    // 构建动态更新SQL（只更新提供的字段）
+    const updates: string[] = [];
+    const values: any[] = [];
+    
+    if (body.company_name !== undefined) {
+      updates.push('company_name = ?');
+      values.push(body.company_name);
+    }
+    if (body.title !== undefined) {
+      updates.push('title = ?');
+      values.push(body.title);
+    }
+    if (body.risk_item !== undefined) {
+      updates.push('risk_item = ?');
+      values.push(body.risk_item);
+    }
+    if (body.risk_level !== undefined) {
+      updates.push('risk_level = ?');
+      values.push(body.risk_level);
+    }
+    if (body.risk_time !== undefined) {
+      updates.push('risk_time = ?');
+      values.push(body.risk_time);
+    }
+    if (body.source !== undefined) {
+      updates.push('source = ?');
+      values.push(body.source);
+    }
+    if (body.source_url !== undefined) {
+      updates.push('source_url = ?');
+      values.push(body.source_url);
+    }
+    if (body.risk_reason !== undefined) {
+      updates.push('risk_reason = ?');
+      values.push(body.risk_reason);
+    }
+    
+    // 如果没有要更新的字段
+    if (updates.length === 0) {
       return c.json<ApiResponse>({ 
         success: false, 
-        error: '公司名称和标题为必填项' 
+        error: '没有要更新的字段' 
       }, 400);
     }
     
-    // 更新风险信息
+    // 执行更新
+    values.push(id); // WHERE id = ?
     const result = await env.DB.prepare(`
       UPDATE risks 
-      SET company_name = ?, title = ?, risk_item = ?, risk_level = ?,
-          source = ?, source_url = ?, risk_reason = ?, remark = ?
+      SET ${updates.join(', ')}
       WHERE id = ?
-    `).bind(
-      body.company_name,
-      body.title,
-      body.risk_item || '',
-      body.risk_level || 'medium',
-      body.source || '',
-      body.source_url || '',
-      body.risk_reason || '',
-      body.remark || '',
-      id
-    ).run();
+    `).bind(...values).run();
     
     console.log('更新结果:', result);
     
