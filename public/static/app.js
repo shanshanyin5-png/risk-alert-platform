@@ -623,7 +623,17 @@ const App = {
 
     const fetchRiskLevelCompanies = async () => {
       try {
-        const response = await axios.get(`${API_BASE}/risk-level/companies`);
+        // 构建查询参数
+        const params = new URLSearchParams();
+        if (riskLevelFilters.name) {
+          params.append('name', riskLevelFilters.name);
+        }
+        if (riskLevelFilters.level) {
+          params.append('level', riskLevelFilters.level);
+        }
+        
+        const url = `${API_BASE}/risk-level/companies${params.toString() ? '?' + params.toString() : ''}`;
+        const response = await axios.get(url);
         if (response.data.success) {
           riskLevelList.value = response.data.data;
         }
@@ -633,7 +643,7 @@ const App = {
     };
 
     const searchRiskLevelCompanies = () => {
-      // 应用筛选逻辑
+      // 应用筛选逻辑并重新获取数据
       fetchRiskLevelCompanies();
     };
 

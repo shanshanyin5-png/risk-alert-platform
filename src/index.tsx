@@ -981,26 +981,55 @@ app.get('/api/risk-level/companies', async (c) => {
   const { env } = c
   
   try {
-    // 从 companies 表查询
-    const { results } = await env.DB.prepare(`
-      SELECT 
-        id,
-        name,
-        credit_code as creditCode,
-        current_level as currentLevel,
-        risk_count as riskCount,
-        last_adjust_time as lastAdjustTime,
-        adjusted_by as adjustedBy,
-        created_at as createdAt
-      FROM companies
-      ORDER BY risk_count DESC, name ASC
-    `).all()
+    // 获取查询参数
+    const name = c.req.query('name') || ''
+    const level = c.req.query('level') || ''
     
-    console.log(`查询到 ${results.length} 家企业`)
+    // 从 risks 表聚合查询公司信息
+    let sql = `
+      SELECT 
+        company_name as name,
+        company_name as creditCode,
+        risk_level as currentLevel,
+        COUNT(*) as riskCount,
+        MAX(created_at) as lastAdjustTime,
+        'system' as adjustedBy,
+        MIN(created_at) as createdAt
+      FROM risks
+      WHERE 1=1
+    `
+    
+    const params: any[] = []
+    
+    // 添加名称筛选
+    if (name) {
+      sql += ' AND company_name LIKE ?'
+      params.push(`%${name}%`)
+    }
+    
+    // 添加等级筛选
+    if (level) {
+      sql += ' AND risk_level = ?'
+      params.push(level)
+    }
+    
+    sql += ' GROUP BY company_name, risk_level'
+    sql += ' ORDER BY riskCount DESC, name ASC'
+    
+    // 执行查询
+    const { results } = await env.DB.prepare(sql).bind(...params).all()
+    
+    // 为每个公司添加ID（使用公司名的hash作为临时ID）
+    const companiesWithId = (results || []).map((company: any, index: number) => ({
+      id: index + 1,
+      ...company
+    }))
+    
+    console.log(`查询到 ${companiesWithId.length} 家企业 (name=${name}, level=${level})`)
     
     return c.json<ApiResponse>({
       success: true,
-      data: results || []
+      data: companiesWithId
     })
   } catch (error: any) {
     console.error('查询企业列表失败:', error)
