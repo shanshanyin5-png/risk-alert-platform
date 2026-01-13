@@ -1468,8 +1468,14 @@ const App = {
                       {{ ds.status === 'normal' ? '正常' : ds.status === 'error' ? '异常' : '停用' }}
                     </span>
                   </td>
-                  <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{{ ds.successRate }}%</td>
-                  <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{{ formatDate(ds.lastCrawlTime) }}</td>
+                  <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                    <span v-if="ds.successRate !== null && ds.successRate !== undefined">{{ ds.successRate }}%</span>
+                    <span v-else class="text-gray-400">未爬取</span>
+                  </td>
+                  <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                    <span v-if="ds.lastCrawlTime">{{ formatDate(ds.lastCrawlTime) }}</span>
+                    <span v-else class="text-gray-400">从未爬取</span>
+                  </td>
                   <td class="px-6 py-4 whitespace-nowrap text-sm font-medium space-x-2">
                     <button @click="editDataSource(ds)" class="text-blue-600 hover:text-blue-900">编辑</button>
                     <button @click="testDataSource(ds)" class="text-green-600 hover:text-green-900">测试</button>
