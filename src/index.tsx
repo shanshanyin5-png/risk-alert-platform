@@ -504,12 +504,13 @@ app.post('/api/crawl/all', async (c) => {
           totalRisks += result.newRisks
           success++
           
-          // 更新数据源状态
+          // 更新数据源状态和成功率
           await env.DB.prepare(`
             UPDATE data_sources 
             SET 
               last_crawl_time = CURRENT_TIMESTAMP,
               success_count = success_count + 1,
+              success_rate = ROUND((success_count + 1) * 100.0 / (success_count + fail_count + 1), 2),
               status = 'normal'
             WHERE id = ?
           `).bind(source.id).run()
@@ -598,13 +599,28 @@ app.post('/api/crawl', async (c) => {
     }
     
     // 更新数据源状态
-    await env.DB.prepare(`
-      UPDATE data_sources 
-      SET 
-        last_crawl_time = CURRENT_TIMESTAMP,
-        ${result.success ? 'success_count = success_count + 1, status = \'normal\'' : 'fail_count = fail_count + 1, status = \'error\''}
-      WHERE id = ?
-    `).bind(sourceId).run()
+    // 更新数据源状态和成功率
+    if (result.success) {
+      await env.DB.prepare(`
+        UPDATE data_sources 
+        SET 
+          last_crawl_time = CURRENT_TIMESTAMP,
+          success_count = success_count + 1,
+          success_rate = ROUND((success_count + 1) * 100.0 / (success_count + fail_count + 1), 2),
+          status = 'normal'
+        WHERE id = ?
+      `).bind(sourceId).run()
+    } else {
+      await env.DB.prepare(`
+        UPDATE data_sources 
+        SET 
+          last_crawl_time = CURRENT_TIMESTAMP,
+          fail_count = fail_count + 1,
+          success_rate = ROUND(success_count * 100.0 / (success_count + fail_count + 1), 2),
+          status = 'error'
+        WHERE id = ?
+      `).bind(sourceId).run()
+    }
     
     return c.json<ApiResponse>({ 
       success: result.success, 
