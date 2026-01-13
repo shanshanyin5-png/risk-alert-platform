@@ -208,11 +208,25 @@ curl "http://localhost:3000/api/risks?page=1&limit=10"
 
 ## 📚 文档索引
 
+### 部署相关
 - 📄 **SIMPLE_DEPLOYMENT.md** - 最简单的部署指南
+- 📄 **CLOUDFLARE_DEPLOYMENT_GUIDE.md** - Cloudflare详细部署
+- 📄 **TEST_AND_DEPLOY.md** - 测试和部署流程
+
+### 数据同步 ⚠️ 重要
+- 📄 **QUICK_SYNC.md** - 快速数据同步参考（1页速查）
+- 📄 **DATA_SYNC_GUIDE.md** - 完整数据同步指南
+- 📄 **PRODUCTION_SYNC_SUMMARY.md** - 生产环境数据同步问题总结
+
+### 功能修复
+- 📄 **RISK_LEVEL_FIX.md** - 风险等级判定修复
+- 📄 **SUCCESS_RATE_FIX.md** - 成功率计算修复
+- 📄 **CRAWL_FAILURE_FIX.md** - 爬取失败修复
+- 📄 **RISK_LEVEL_UPDATE_FIX.md** - 风险等级手动调整修复
+
+### 其他文档
 - 📄 **FREE_CONFIRMATION.md** - 免费方案确认
 - 📄 **DATASOURCE_FIX_GUIDE.md** - 数据源修复指南
-- 📄 **TEST_AND_DEPLOY.md** - 测试和部署流程
-- 📄 **CLOUDFLARE_DEPLOYMENT_GUIDE.md** - Cloudflare详细部署
 
 ---
 
@@ -233,7 +247,20 @@ curl "http://localhost:3000/api/risks?page=1&limit=10"
 - **手动更新**：点击"一键更新"按钮
 - **自动更新**：可配置定时任务（需要 Cloudflare Workers Cron）
 
-### Q4: 如何添加新的数据源？
+### Q5: 生产环境和沙盒数据不一致？
+**A**: 这是正常的！生产环境和本地开发使用的是两个独立的数据库。
+
+**解决方案**：
+```bash
+# 1. 配置 Cloudflare API Token（访问 Deploy 标签页）
+# 2. 执行数据同步
+cd /home/user/webapp
+./sync_data_to_production.sh
+```
+
+详细步骤请查看：📄 [QUICK_SYNC.md](./QUICK_SYNC.md)
+
+### Q7: 如何添加新的数据源？
 **A**: 
 ```bash
 curl -X POST https://risk-alert-platform.pages.dev/api/datasources \
@@ -246,7 +273,7 @@ curl -X POST https://risk-alert-platform.pages.dev/api/datasources \
   }'
 ```
 
-### Q5: 生产环境还没部署新代码？
+### Q8: 生产环境还没部署新代码？
 **A**: 
 1. 登录 Cloudflare Dashboard
 2. 找到 risk-alert-platform
