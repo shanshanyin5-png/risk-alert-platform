@@ -71,11 +71,11 @@ app.get('/api/risks', async (c) => {
       params.push(endDate)
     }
 
-    // 数据源类型筛选
-    if (sourceType) {
-      whereClause += ' AND source_type = ?'
-      params.push(sourceType)
-    }
+    // 数据源类型筛选 - 暂不支持（字段不存在）
+    // if (sourceType) {
+    //   whereClause += ' AND source_type = ?'
+    //   params.push(sourceType)
+    // }
 
     // 来源地区筛选
     if (sourceRegion) {
@@ -481,27 +481,31 @@ app.post('/api/crawl/all', async (c) => {
         
         const result = await crawlAndAnalyze(source, env)
         
-        if (result.success && result.risks.length > 0) {
-          // 保存风险到数据库
-          for (const risk of result.risks) {
-            await env.DB.prepare(`
-              INSERT INTO risks (
-                company_name, title, risk_item, risk_level,
-                risk_time, source, source_url, risk_reason, created_at
-              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-            `).bind(
-              risk.company_name,
-              risk.title,
-              risk.risk_item,
-              risk.risk_level,
-              risk.risk_time,
-              risk.source,
-              risk.source_url,
-              risk.risk_reason
-            ).run()
+        // 爬取成功（无论是否发现新风险）
+        if (result.success) {
+          // 如果发现新风险，保存到数据库
+          if (result.risks.length > 0) {
+            for (const risk of result.risks) {
+              await env.DB.prepare(`
+                INSERT INTO risks (
+                  company_name, title, risk_item, risk_level,
+                  risk_time, source, source_url, risk_reason, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+              `).bind(
+                risk.company_name,
+                risk.title,
+                risk.risk_item,
+                risk.risk_level,
+                risk.risk_time,
+                risk.source,
+                risk.source_url,
+                risk.risk_reason
+              ).run()
+            }
+            
+            totalRisks += result.newRisks
           }
           
-          totalRisks += result.newRisks
           success++
           
           // 更新数据源状态和成功率
@@ -1145,8 +1149,8 @@ app.post('/api/risks/manual', async (c) => {
     const result = await env.DB.prepare(`
       INSERT INTO risks (
         company_name, title, risk_item, risk_time, source, 
-        risk_level, risk_reason, remark, source_type, source_url
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'manual', ?)
+        risk_level, risk_reason, source_url
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `).bind(
       body.company_name,
       body.title,
@@ -1155,7 +1159,6 @@ app.post('/api/risks/manual', async (c) => {
       body.source || '人工录入',
       body.risk_level || 'medium',
       body.risk_reason || '',
-      body.remark || '',
       body.source_url || ''
     ).run();
     
@@ -1264,8 +1267,8 @@ app.post('/api/risks/import', async (c) => {
         await env.DB.prepare(`
           INSERT INTO risks (
             company_name, title, risk_item, risk_time, source,
-            risk_level, risk_reason, remark, source_type, source_url
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'import', ?)
+            risk_level, risk_reason, source_url
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         `).bind(
           risk.company_name.trim(),
           risk.title.trim(),
@@ -1274,7 +1277,6 @@ app.post('/api/risks/import', async (c) => {
           risk.source || 'Excel导入',
           riskLevel,
           risk.risk_reason || '',
-          risk.remark || '',
           risk.source_url || ''
         ).run();
         
