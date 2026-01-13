@@ -86,16 +86,16 @@ const MEDIUM_RISK_KEYWORDS = [
 // 低风险关键词（正常/正面）
 const LOW_RISK_KEYWORDS = [
   // 正面报道
-  '成功', '完成', '顺利', '签约', '合作', '获奖',
-  'success', 'complete', 'smooth', 'sign', 'cooperation', 'award',
+  '成功', '完成', '顺利', '签约', '合作', '获奖', '责任', '社会',
+  'success', 'complete', 'smooth', 'sign', 'cooperation', 'award', 'responsibility', 'social',
   
   // 业务拓展
-  '扩张', '投资', '新项目', '增长', '盈利',
-  'expansion', 'investment', 'new project', 'growth', 'profit',
+  '扩张', '投资', '新项目', '增长', '盈利', '可再生能源', '100%', '清洁能源',
+  'expansion', 'investment', 'new project', 'growth', 'profit', 'renewable', 'clean energy', 'achieve',
   
   // 技术创新
-  '创新', '技术', '升级', '智能', '数字化',
-  'innovation', 'technology', 'upgrade', 'smart', 'digital'
+  '创新', '技术', '升级', '智能', '数字化', '项目', '培训', '招聘',
+  'innovation', 'technology', 'upgrade', 'smart', 'digital', 'project', 'training', 'recruitment'
 ]
 
 // 风险分析接口
@@ -163,15 +163,13 @@ function assessRiskLevel(text: string): '高风险' | '中风险' | '低风险' 
     }
   })
   
-  // 判定规则
-  if (highRiskCount >= 2) return '高风险'
+  // 判定规则（优先级：高 > 中 > 低）
   if (highRiskCount >= 1) return '高风险'
-  if (mediumRiskCount >= 2) return '中风险'
-  if (mediumRiskCount >= 1 && lowRiskCount === 0) return '中风险'
+  if (mediumRiskCount >= 1) return '中风险'
   if (lowRiskCount >= 1) return '低风险'
   
-  // 默认中风险（保守策略）
-  return '中风险'
+  // 无明确关键词时，默认为低风险（正常业务报道）
+  return '低风险'
 }
 
 /**
