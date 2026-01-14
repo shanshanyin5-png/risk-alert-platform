@@ -21,58 +21,215 @@ app.use('/api/*', cors())
 // 静态文件服务
 app.use('/static/*', serveStatic({ root: './' }))
 
-// AI搜索页面（简化方案：直接返回HTML字符串）
+// AI搜索页面（完整HTML内联）
 app.get('/ai-search', async (c) => {
-  // 由于Cloudflare Pages的静态文件限制，这里暂时返回一个跳转页面
-  // 完整页面在 public/ai-search.html 中
   return c.html(`
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AI智能搜索 - 跳转中...</title>
+    <title>AI智能搜索分析 - 风险预警平台</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css" rel="stylesheet">
     <style>
-      body { 
-        display: flex; 
-        justify-content: center; 
-        align-items: center; 
-        height: 100vh; 
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        color: white;
-        font-family: sans-serif;
-      }
-      .container {
-        text-center;
-      }
-      .spinner {
-        border: 4px solid rgba(255,255,255,0.3);
-        border-top: 4px solid white;
-        border-radius: 50%;
-        width: 40px;
-        height: 40px;
-        animation: spin 1s linear infinite;
-        margin: 20px auto;
-      }
-      @keyframes spin {
-        0% { transform: rotate(0deg); }
-        100% { transform: rotate(360deg); }
-      }
+        .gradient-bg {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        }
+        .card-shadow {
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+        }
+        .typing-indicator span {
+            animation: blink 1.4s infinite both;
+        }
+        .typing-indicator span:nth-child(2) {
+            animation-delay: 0.2s;
+        }
+        .typing-indicator span:nth-child(3) {
+            animation-delay: 0.4s;
+        }
+        @keyframes blink {
+            0%, 80%, 100% { opacity: 0; }
+            40% { opacity: 1; }
+        }
+        .result-card {
+            transition: all 0.3s ease;
+        }
+        .result-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+        }
     </style>
 </head>
-<body>
-    <div class="container">
-        <h2>AI智能搜索功能</h2>
-        <div class="spinner"></div>
-        <p>页面准备中...</p>
-        <p style="margin-top: 20px; font-size: 14px;">
-          <a href="/" style="color: white;">← 返回主页</a>
-        </p>
-        <p style="margin-top: 10px; font-size: 12px; opacity: 0.8;">
-          提示：AI搜索功能已开发完成，文件位于 public/ai-search.html<br>
-          由于Cloudflare Pages静态文件服务限制，需要配置正确的路由才能访问
-        </p>
+<body class="bg-gray-50">
+    <!-- 导航栏 -->
+    <nav class="gradient-bg text-white shadow-lg">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex justify-between h-16 items-center">
+                <div class="flex items-center">
+                    <i class="fas fa-brain text-2xl mr-3"></i>
+                    <h1 class="text-xl font-bold">AI智能搜索分析</h1>
+                </div>
+                <div class="flex items-center space-x-4">
+                    <a href="/" class="hover:text-gray-200 transition">
+                        <i class="fas fa-home mr-2"></i>返回主页
+                    </a>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <!-- 搜索区域 -->
+        <div class="bg-white rounded-lg card-shadow p-6 mb-8">
+            <div class="mb-6">
+                <h2 class="text-2xl font-bold text-gray-800 mb-2">
+                    <i class="fas fa-search text-purple-600 mr-2"></i>
+                    智能风险搜索
+                </h2>
+                <p class="text-gray-600">输入关键词，AI将帮您搜索并分析相关风险信息</p>
+            </div>
+
+            <!-- 搜索框 -->
+            <div class="mb-4">
+                <div class="relative">
+                    <input 
+                        type="text" 
+                        id="searchInput" 
+                        placeholder="例如：停电、事故、延期、巴西CPFL..." 
+                        class="w-full px-4 py-3 pr-24 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                    >
+                    <button 
+                        id="searchBtn"
+                        class="absolute right-2 top-1/2 transform -translate-y-1/2 bg-purple-600 text-white px-6 py-2 rounded-lg hover:bg-purple-700 transition"
+                    >
+                        <i class="fas fa-search mr-2"></i>搜索
+                    </button>
+                </div>
+            </div>
+
+            <!-- 高级筛选 -->
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">风险等级</label>
+                    <select id="riskLevel" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500">
+                        <option value="">全部</option>
+                        <option value="高风险">高风险</option>
+                        <option value="中风险">中风险</option>
+                        <option value="低风险">低风险</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">公司</label>
+                    <select id="company" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500">
+                        <option value="">全部公司</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">时间范围</label>
+                    <select id="timeRange" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500">
+                        <option value="7">最近7天</option>
+                        <option value="30">最近30天</option>
+                        <option value="90">最近90天</option>
+                        <option value="0">全部时间</option>
+                    </select>
+                </div>
+            </div>
+
+            <!-- 快速关键词 -->
+            <div class="mt-4">
+                <label class="block text-sm font-medium text-gray-700 mb-2">快速搜索：</label>
+                <div class="flex flex-wrap gap-2">
+                    <button class="quick-keyword px-3 py-1 bg-gray-100 text-gray-700 rounded-full hover:bg-purple-100 hover:text-purple-700 transition text-sm">
+                        停电
+                    </button>
+                    <button class="quick-keyword px-3 py-1 bg-gray-100 text-gray-700 rounded-full hover:bg-purple-100 hover:text-purple-700 transition text-sm">
+                        事故
+                    </button>
+                    <button class="quick-keyword px-3 py-1 bg-gray-100 text-gray-700 rounded-full hover:bg-purple-100 hover:text-purple-700 transition text-sm">
+                        延期
+                    </button>
+                    <button class="quick-keyword px-3 py-1 bg-gray-100 text-gray-700 rounded-full hover:bg-purple-100 hover:text-purple-700 transition text-sm">
+                        巴西CPFL
+                    </button>
+                    <button class="quick-keyword px-3 py-1 bg-gray-100 text-gray-700 rounded-full hover:bg-purple-100 hover:text-purple-700 transition text-sm">
+                        巴基斯坦PMLTC
+                    </button>
+                    <button class="quick-keyword px-3 py-1 bg-gray-100 text-gray-700 rounded-full hover:bg-purple-100 hover:text-purple-700 transition text-sm">
+                        菲律宾NGCP
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- AI分析区域 -->
+        <div id="aiAnalysis" class="hidden bg-gradient-to-r from-purple-50 to-blue-50 rounded-lg card-shadow p-6 mb-8">
+            <div class="flex items-start">
+                <div class="flex-shrink-0">
+                    <div class="w-12 h-12 bg-purple-600 rounded-full flex items-center justify-center">
+                        <i class="fas fa-robot text-white text-xl"></i>
+                    </div>
+                </div>
+                <div class="ml-4 flex-1">
+                    <h3 class="text-lg font-bold text-gray-800 mb-2">
+                        <i class="fas fa-brain text-purple-600 mr-2"></i>
+                        AI智能分析
+                    </h3>
+                    <div id="aiAnalysisContent" class="text-gray-700">
+                        <div class="typing-indicator">
+                            <span>●</span>
+                            <span>●</span>
+                            <span>●</span>
+                            AI正在分析中...
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 搜索结果 -->
+        <div id="searchResults" class="hidden">
+            <div class="bg-white rounded-lg card-shadow p-6 mb-4">
+                <div class="flex justify-between items-center mb-4">
+                    <h3 class="text-xl font-bold text-gray-800">
+                        <i class="fas fa-list text-purple-600 mr-2"></i>
+                        搜索结果 <span id="resultCount" class="text-purple-600"></span>
+                    </h3>
+                    <button id="exportBtn" class="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition">
+                        <i class="fas fa-download mr-2"></i>导出结果
+                    </button>
+                </div>
+                <div id="resultsList" class="space-y-4"></div>
+            </div>
+
+            <!-- 分页 -->
+            <div id="pagination" class="flex justify-center items-center space-x-2"></div>
+        </div>
+
+        <!-- 加载状态 -->
+        <div id="loadingState" class="hidden text-center py-12">
+            <div class="inline-block">
+                <i class="fas fa-spinner fa-spin text-4xl text-purple-600 mb-4"></i>
+                <p class="text-gray-600">正在搜索分析中...</p>
+            </div>
+        </div>
+
+        <!-- 空状态 -->
+        <div id="emptyState" class="text-center py-12">
+            <i class="fas fa-search text-6xl text-gray-300 mb-4"></i>
+            <p class="text-gray-500 text-lg">输入关键词开始搜索</p>
+        </div>
+
+        <!-- 无结果状态 -->
+        <div id="noResults" class="hidden text-center py-12">
+            <i class="fas fa-inbox text-6xl text-gray-300 mb-4"></i>
+            <p class="text-gray-500 text-lg">未找到相关风险信息</p>
+            <p class="text-gray-400 mt-2">尝试更换关键词或调整筛选条件</p>
+        </div>
     </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/axios@1.6.0/dist/axios.min.js"></script>
+    <script src="/static/ai-search.js"></script>
 </body>
 </html>
   `)
