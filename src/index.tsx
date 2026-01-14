@@ -11,7 +11,11 @@ import * as cheerio from 'cheerio'
 
 const app = new Hono<{ Bindings: Bindings }>()
 
-// 启用CORS
+// ========== 爬取配置 ==========
+// 每个数据源最多分析的文章数（0表示无限制，建议20-50以防超时）
+const MAX_ARTICLES_PER_SOURCE = 50
+
+// ========== CORS配置 ==========
 app.use('/api/*', cors())
 
 // 静态文件服务
@@ -422,9 +426,14 @@ async function crawlAndAnalyze(source: any, env: any) {
     let analyzedCount = 0
     let relevantCount = 0
     
-    console.log(`准备进入分析循环，文章数：${articles.length}，将处理前20篇`)
+    // 处理文章数量：如果配置为0则处理全部，否则按配置限制
+    const articlesToProcess = MAX_ARTICLES_PER_SOURCE > 0 
+      ? articles.slice(0, MAX_ARTICLES_PER_SOURCE) 
+      : articles
     
-    for (const article of articles.slice(0, 20)) { // 限制20篇
+    console.log(`准备分析：文章总数 ${articles.length}，将处理 ${articlesToProcess.length} 篇`)
+    
+    for (const article of articlesToProcess) {
       console.log(`[循环 ${analyzedCount + 1}] 开始分析`)
       analyzedCount++
       
