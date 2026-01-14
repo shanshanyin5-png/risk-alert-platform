@@ -1,6 +1,8 @@
 // 新闻爬取模块（完全免费，无需任何付费API）
 import * as cheerio from 'cheerio'
+import { analyzeNewsRisk as analyzeWithRules } from './ruleBasedAnalyzer'
 
+// 向后兼容的函数（仍然保留给其他部分使用）
 // 国网及子公司关键词
 const SGCC_KEYWORDS = [
   '国家电网', '国网', 'State Grid', 'SGCC',
@@ -146,7 +148,7 @@ export async function crawlWebpage(url: string, timeout: number = 30000): Promis
 }
 
 /**
- * 使用免费规则分析新闻风险（不依赖任何付费API）
+ * 使用免费规则分析新闻风险（使用ruleBasedAnalyzer）
  */
 export async function analyzeNewsRisk(title: string, content: string): Promise<{
   isRelevant: boolean
@@ -155,91 +157,22 @@ export async function analyzeNewsRisk(title: string, content: string): Promise<{
   riskItem: string
   reason: string
 }> {
-  // 检查是否包含国网关键词
-  const hasSGCC = containsSGCCKeywords(title + ' ' + content)
+  // 使用新的两级过滤分析器
+  const analysis = await analyzeWithRules(title, content)
   
-  if (!hasSGCC) {
-    return {
-      isRelevant: false,
-      riskLevel: 'low',
-      company: '',
-      riskItem: '',
-      reason: ''
-    }
-  }
-  
-  // 检查负面关键词
-  const hasNegative = containsNegativeKeywords(title + ' ' + content)
-  
-  if (!hasNegative) {
-    return {
-      isRelevant: false,
-      riskLevel: 'low',
-      company: '',
-      riskItem: '',
-      reason: ''
-    }
-  }
-  
-  // 提取公司名
-  let company = '国家电网相关'
-  const text = title + ' ' + content
-  
-  // 公司映射
-  const companyMap: { [key: string]: string } = {
-    'PMLTC': '巴基斯坦PMLTC公司',
-    'Pakistan': '巴基斯坦PMLTC公司',
-    'Matiari': '巴基斯坦PMLTC公司',
-    'Lahore': '巴基斯坦PMLTC公司',
-    'CPFL': '巴西CPFL公司',
-    'Brazil': '巴西CPFL公司',
-    'NGCP': '菲律宾NGCP公司',
-    'Philippines': '菲律宾NGCP公司',
-    'CGE': '智利CGE公司',
-    'Chile': '智利CGE公司',
-    'REN': '葡萄牙REN公司',
-    'Portugal': '葡萄牙REN公司',
-    'IPTO': '希腊IPTO公司',
-    'Greece': '希腊IPTO公司',
-    'ElectraNet': '南澳Electranet',
-    'Australia': '澳大利亚澳洲资产公司',
-    'HK Electric': '香港电灯公司',
-    'Hong Kong': '香港电灯公司'
-  }
-  
-  for (const [keyword, name] of Object.entries(companyMap)) {
-    if (text.includes(keyword)) {
-      company = name
-      break
-    }
-  }
-  
-  // 判断风险等级
-  const highRiskKeywords = [
-    '事故', '爆炸', '火灾', '伤亡', '死亡', '破产', '违约',
-    'accident', 'explosion', 'fire', 'death', 'bankruptcy', 'default'
-  ]
-  
-  const mediumRiskKeywords = [
-    '停电', '故障', '延期', '罚款', '诉讼', '亏损',
-    'outage', 'failure', 'delay', 'fine', 'lawsuit', 'loss'
-  ]
-  
-  let riskLevel: 'high' | 'medium' | 'low' = 'low'
-  
-  const lowerText = text.toLowerCase()
-  if (highRiskKeywords.some(k => lowerText.includes(k.toLowerCase()))) {
-    riskLevel = 'high'
-  } else if (mediumRiskKeywords.some(k => lowerText.includes(k.toLowerCase()))) {
-    riskLevel = 'medium'
+  // 转换风险等级格式（中文 -> 英文）
+  const riskLevelMap: { [key: string]: 'high' | 'medium' | 'low' } = {
+    '高风险': 'high',
+    '中风险': 'medium',
+    '低风险': 'low'
   }
   
   return {
-    isRelevant: true,
-    riskLevel,
-    company,
-    riskItem: title.substring(0, 50),
-    reason: '基于规则的免费风险分析'
+    isRelevant: analysis.isRelevant,
+    riskLevel: riskLevelMap[analysis.riskLevel] || 'low',
+    company: analysis.companyName,
+    riskItem: analysis.riskItem,
+    reason: analysis.analysis
   }
 }
 

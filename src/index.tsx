@@ -397,12 +397,62 @@ async function crawlAndAnalyze(source: any, env: any) {
       console.log(`HTML爬取成功，提取到 ${articles.length} 篇文章`)
     }
     
+    console.log(`开始分析 ${articles.length} 篇文章，限制处理前20篇`)
+    
+    // 数据源到公司的映射（解决RSS标题不含公司名的问题）
+    const sourceCompanyMap: { [key: string]: string } = {
+      'Google News - PMLTC Pakistan': '巴基斯坦PMLTC公司',
+      'Google News - CPFL Brazil': '巴西CPFL公司',
+      'Google News - NGCP Philippines': '菲律宾NGCP公司',
+      'Google News - 国家电网测试': '国家电网巴西控股公司',
+      'BBC News - World': '', // 全球新闻，需要从内容识别
+      'Reuters - World News': '',
+      'Reuters - Business': '',
+      'Al Jazeera - English': '',
+      'New York Times - World': '',
+    }
+    
+    // 从数据源名称获取默认公司
+    const defaultCompany = sourceCompanyMap[source.name] || ''
+    
+    console.log(`数据源: "${source.name}", 默认公司: "${defaultCompany}"`)
+    
     // 使用规则分析器分析风险
     const risks: any[] = []
+    let analyzedCount = 0
+    let relevantCount = 0
+    
+    console.log(`准备进入分析循环，文章数：${articles.length}，将处理前20篇`)
+    
     for (const article of articles.slice(0, 20)) { // 限制20篇
-      const analysis = await analyzeNewsRisk(article.title, article.content, article.time)
+      console.log(`[循环 ${analyzedCount + 1}] 开始分析`)
+      analyzedCount++
       
-      if (analysis.isRelevant) {
+      // 将数据源名称也加入分析上下文（帮助识别公司）
+      const contextText = `${source.name} ${article.title} ${article.content}`
+      const analysis = await analyzeNewsRisk(article.title, contextText, article.time)
+      
+      // 如果分析器无法识别公司，使用数据源的默认公司
+      const companyName = analysis.companyName || defaultCompany
+      
+      // 简化收录规则：只要有公司就收录，不做任何过滤
+      const shouldInclude = !!companyName
+      
+      // 调试输出（只输出前3条）
+      if (analyzedCount <= 3) {
+        console.log(`[分析 ${analyzedCount}] 源: ${source.name}`)
+        console.log(`  标题: ${article.title.substring(0, 50)}...`)
+        console.log(`  → 分析器相关: ${analysis.isRelevant}`)
+        console.log(`  → 分析器公司: ${analysis.companyName || '无'}`)
+        console.log(`  → 默认公司: ${defaultCompany || '无'}`)
+        console.log(`  → 最终公司: ${companyName || '无'}`)
+        console.log(`  → 是否收录: ${shouldInclude}`)
+        console.log(`  → 风险等级: ${analysis.riskLevel}`)
+      }
+      
+      if (shouldInclude && companyName) {
+        relevantCount++
+        
         // 检查是否已存在（去重）
         const existing = await env.DB.prepare(`
           SELECT id FROM risks WHERE title = ?
@@ -410,10 +460,10 @@ async function crawlAndAnalyze(source: any, env: any) {
         
         if (!existing) {
           risks.push({
-            company_name: analysis.companyName,
+            company_name: companyName,
             title: article.title,
             risk_item: analysis.riskItem,
-            risk_level: analysis.riskLevel,
+            risk_level: analysis.riskLevel, // ruleBasedAnalyzer返回中文格式
             risk_time: article.time,
             source: source.name,
             source_url: article.url,
@@ -422,6 +472,8 @@ async function crawlAndAnalyze(source: any, env: any) {
         }
       }
     }
+    
+    console.log(`分析完成: 分析${analyzedCount}条, 相关${relevantCount}条, 新增${risks.length}条`)
     
     console.log(`发现 ${risks.length} 条相关风险`)
     

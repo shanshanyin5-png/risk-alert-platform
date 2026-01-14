@@ -15,39 +15,81 @@ const SGCC_SPECIFIC_KEYWORDS = [
   'HK Electric', 'Hongkong Electric'
 ]
 
-// 负面/风险关键词（必须包含至少一个）
+// 正面新闻关键词（用于排除）
+const POSITIVE_KEYWORDS = [
+  // 人事任命
+  '任命', '晋升', '就职', '新任', '上任',
+  'appointed', 'appoints', 'promotes', 'new director', 'new president', 'new CEO', 'assumes',
+  
+  // 成就荣誉
+  '获奖', '表彰', '荣誉', '奖项', '认可',
+  'award', 'awards', 'recognition', 'honor', 'prize', 'wins',
+  
+  // 投资扩张
+  '投资', '扩建', '建设', '启动',
+  'investment', 'invests', 'expansion', 'expands', 'construction', 'builds',
+  
+  // 正面成果
+  '100%', '达成', '实现', '完成',
+  'achieve', 'achieves', 'reached', 'complete', 'success', 'successful',
+  
+  // 可再生能源（正面）
+  '可再生能源', '清洁能源', '绿色能源', '太阳能', '风能',
+  'renewable energy', 'renewable', 'clean energy', 'green energy', 'solar', 'wind power',
+  
+  // 培训教育
+  '培训', '教育', '招聘', '学校', '课程',
+  'training', 'education', 'recruitment', 'school', 'course', 'program',
+  
+  // 社会责任
+  '社会责任', '公益', '慈善', '帮助', '支持',
+  'social responsibility', 'charity', 'charitable', 'community', 'helps', 'supports',
+  
+  // 合作协议
+  '合作', '签约', '协议', '伙伴',
+  'cooperation', 'partnership', 'agreement', 'signs', 'contract',
+  
+  // 技术创新
+  '创新', '数字化', '智能', '升级',
+  'innovation', 'digital', 'smart', 'upgrade', 'modernization'
+]
+
+// 负面/风险关键词（用于评级）
 const NEGATIVE_KEYWORDS = [
   // 安全事故
   '事故', '爆炸', '火灾', '伤亡', '死亡', '受伤',
   'accident', 'explosion', 'fire', 'death', 'fatality', 'casualties', 'injured',
   
   // 运营问题
-  '故障', '停电', '断电', '中断', '暂停', '关闭',
-  'failure', 'outage', 'blackout', 'disruption', 'suspended', 'shutdown',
+  '故障', '停电', '断电', '中断', '暂停', '关闭', '限电', '缺电',
+  'failure', 'outage', 'blackout', 'disruption', 'suspended', 'shutdown', 'loadshedding', 'power cut', 'power crisis', 'power shortage', 'shortfall',
   
   // 财务问题
-  '亏损', '债务', '破产', '违约', '赤字', '损失',
-  'loss', 'debt', 'bankruptcy', 'default', 'deficit',
+  '亏损', '债务', '破产', '违约', '赤字', '损失', '资金紧张', '现金流',
+  'loss', 'debt', 'bankruptcy', 'default', 'deficit', 'financial trouble', 'cash crunch',
   
   // 法律问题
-  '诉讼', '起诉', '罚款', '调查', '腐败', '违规',
-  'lawsuit', 'prosecution', 'fine', 'investigation', 'corruption', 'violation',
+  '诉讼', '起诉', '罚款', '调查', '腐败', '违规', '审查', '监管',
+  'lawsuit', 'prosecution', 'fine', 'penalty', 'investigation', 'corruption', 'violation', 'regulatory action',
   
   // 社会问题
-  '抗议', '罢工', '冲突', '争议', '投诉', '批评',
-  'protest', 'strike', 'conflict', 'dispute', 'complaint', 'criticism',
+  '抗议', '罢工', '冲突', '争议', '投诉', '批评', '不满', '示威',
+  'protest', 'strike', 'conflict', 'dispute', 'complaint', 'criticism', 'dissatisfaction', 'demonstration',
   
   // 项目问题
-  '延期', '取消', '搁置', '推迟', '超支',
-  'delay', 'cancelled', 'suspended', 'postponed', 'overbudget',
+  '延期', '取消', '搁置', '推迟', '超支', '拖延', '暂停',
+  'delay', 'delayed', 'cancelled', 'suspended', 'postponed', 'overbudget', 'behind schedule',
   
   // 政治风险
-  '制裁', '禁令', '国有化', '征收',
-  'sanction', 'ban', 'nationalization', 'expropriation',
+  '制裁', '禁令', '国有化', '征收', '政变', '动荡',
+  'sanction', 'ban', 'nationalization', 'expropriation', 'coup', 'unrest',
   
   // 质量/性能问题
-  '缺陷', '问题', '失败', '瘫痪',
-  'defect', 'problem', 'failed', 'collapsed'
+  '缺陷', '问题', '失败', '瘫痪', '故障率高', '不稳定',
+  'defect', 'problem', 'issue', 'failed', 'collapsed', 'unreliable', 'unstable',
+  
+  // 供电问题（巴基斯坦常见）
+  'load-shedding', 'power outage', 'electricity shortage', 'supply disruption'
 ]
 
 // 公司名称映射（优先级从高到低）
@@ -159,41 +201,86 @@ function containsNegativeKeywords(text: string): boolean {
 }
 
 /**
- * 检查文本是否与国网相关（必须同时满足：1.公司相关 2.负面信息）
+ * 检查文本是否包含正面关键词
+ */
+function containsPositiveKeywords(text: string): boolean {
+  const lowerText = text.toLowerCase()
+  return POSITIVE_KEYWORDS.some(keyword => 
+    lowerText.includes(keyword.toLowerCase())
+  )
+}
+
+/**
+ * 检查是否应该收录（简化版：只要能识别公司就收录）
  */
 function isRelevantToSGCC(text: string): boolean {
   const lowerText = text.toLowerCase()
   
-  // 1. 必须包含公司关键词
-  const hasCompanyKeyword = SGCC_SPECIFIC_KEYWORDS.some(keyword => 
-    lowerText.includes(keyword.toLowerCase())
-  )
-  
-  if (!hasCompanyKeyword) {
-    return false
-  }
-  
-  // 2. 必须包含负面关键词（过滤正面新闻）
-  const hasNegativeKeyword = containsNegativeKeywords(text)
-  
-  return hasNegativeKeyword
+  // 只要能识别公司就收录，不做任何过滤
+  const company = identifyCompany(text)
+  return !!company // 有公司就收录
 }
 
 /**
- * 识别相关公司名称
+ * 识别相关公司名称（带上下文验证）
  */
 function identifyCompany(text: string): string {
   const lowerText = text.toLowerCase()
   
-  // 按优先级匹配公司
-  for (const [keyword, company] of Object.entries(COMPANY_MAP)) {
+  // 特殊检查：REN 必须有电力/能源上下文
+  if (lowerText.includes('ren') && !lowerText.includes('portugal') && 
+      !lowerText.includes('energia') && !lowerText.includes('electric') &&
+      !lowerText.includes('power') && !lowerText.includes('grid')) {
+    // 如果 REN 出现但没有电力相关词汇，不匹配（避免 Jeremy Renner 这类误匹配）
+    // 继续检查其他公司
+  } else if (lowerText.includes('ren portugal') || lowerText.includes('redes energéticas')) {
+    return '葡萄牙REN公司'
+  }
+  
+  // 按优先级匹配其他公司（优先长关键词）
+  const priorityKeywords = [
+    ['CPFL Energia', '巴西CPFL公司'],
+    ['Grupo CPFL', '巴西CPFL公司'],
+    ['CPFL', '巴西CPFL公司'],
+    
+    ['PMLTC', '巴基斯坦PMLTC公司'],
+    ['Matiari', '巴基斯坦PMLTC公司'],
+    
+    ['NGCP Philippines', '菲律宾NGCP公司'],
+    ['NGCP', '菲律宾NGCP公司'],
+    
+    ['CGE Chile', '智利CGE公司'],
+    ['Chilectra', '智利CGE公司'],
+    
+    ['IPTO Greece', '希腊IPTO公司'],
+    ['IPTO', '希腊IPTO公司'],
+    
+    ['ElectraNet', '澳大利亚南澳Electranet'],
+    ['Ausgrid', '澳大利亚澳洲资产公司'],
+    
+    ['HK Electric', '香港电灯公司'],
+    ['Hongkong Electric', '香港电灯公司'],
+    
+    ['State Grid Brazil', '国家电网巴西控股公司'],
+    ['State Grid', '国家电网巴西控股公司'],
+    ['国家电网', '国家电网巴西控股公司'],
+    ['国网', '国家电网巴西控股公司']
+  ] as const
+  
+  for (const [keyword, company] of priorityKeywords) {
     if (lowerText.includes(keyword.toLowerCase())) {
       return company
     }
   }
   
-  // 默认返回国家电网
-  return '国家电网巴西控股公司'
+  // 如果只有 CGE 但没有 Chile 上下文，可能是误匹配
+  if (lowerText.includes('cge') && !lowerText.includes('chile') && 
+      !lowerText.includes('chilectra') && !lowerText.includes('electric')) {
+    // 不返回，继续检查
+  }
+  
+  // 默认返回空（表示无法确定）
+  return ''
 }
 
 /**
@@ -290,7 +377,7 @@ function generateAnalysis(
   const summaries: { [key: string]: string } = {
     '高风险': '该事件涉及重大安全、财务或法律问题，可能对公司运营造成严重影响，需要高度关注和及时应对。',
     '中风险': '该事件涉及运营故障、财务波动或法律纠纷，可能对公司造成一定影响，建议持续跟踪。',
-    '低风险': '该事件属于正常业务报道或正面新闻，对公司运营无明显不利影响，可作为信息参考。'
+    '低风险': '该事件为中性报道或潜在风险，无明确负面关键词，建议人工审核以确定是否需要关注。'
   }
   
   let analysis = summaries[riskLevel] || '该事件需要进一步分析评估。'
@@ -324,7 +411,7 @@ export async function analyzeNewsRisk(
       companyName: '',
       riskLevel: '低风险',
       riskItem: '',
-      analysis: '该新闻不符合收录条件：未同时包含公司关键词和负面风险关键词'
+      analysis: '该新闻不符合收录条件：无法识别电力公司或属于正面新闻'
     }
   }
   
