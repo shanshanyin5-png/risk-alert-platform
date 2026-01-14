@@ -64,8 +64,22 @@ async function performSearch() {
     showLoading();
     
     try {
-        // 调用搜索API
-        const searchResults = await searchRisks(keyword);
+        // 判断是否使用实时搜索（默认使用）
+        const useRealtimeSearch = true; // 可以通过开关控制
+        
+        let searchResults;
+        let aiAnalysisResult;
+        
+        if (useRealtimeSearch) {
+            // 使用实时搜索（GenSpark AI + Web Search）
+            const realtimeResult = await performRealtimeSearch(keyword);
+            searchResults = realtimeResult.risks || [];
+            aiAnalysisResult = realtimeResult;
+        } else {
+            // 使用本地数据库搜索
+            searchResults = await searchRisks(keyword);
+        }
+        
         currentResults = searchResults;
         totalResults = searchResults.length;
         
@@ -77,12 +91,16 @@ async function performSearch() {
         // 显示结果
         displayResults(searchResults);
         
-        // 调用AI分析
-        await performAIAnalysis(keyword, searchResults);
+        // 显示AI分析
+        if (aiAnalysisResult) {
+            displayRealtimeAnalysis(aiAnalysisResult);
+        } else {
+            await performAIAnalysis(keyword, searchResults);
+        }
         
     } catch (error) {
         console.error('搜索失败:', error);
-        alert('搜索失败，请稍后重试');
+        alert('搜索失败：' + (error.message || '请稍后重试'));
         showEmpty();
     }
 }
@@ -578,3 +596,200 @@ function showNoResults() {
 function hideNoResults() {
     document.getElementById('noResults').classList.add('hidden');
 }
+
+// ========== 实时搜索功能（GenSpark AI + Web Search） ==========
+
+// 实时搜索（GenSpark AI + Web Search）
+async function performRealtimeSearch(keyword) {
+    const riskLevel = document.getElementById('riskLevel').value;
+    const company = document.getElementById('company').value;
+    const timeRange = parseInt(document.getElementById('timeRange').value);
+    
+    try {
+        console.log('执行实时搜索:', keyword);
+        
+        // 更新加载提示
+        const loadingText = document.querySelector('.loading-spinner p');
+        if (loadingText) {
+            loadingText.textContent = '正在搜索互联网，AI正在分析...';
+        }
+        
+        // 调用实时搜索API
+        const response = await axios.post('/api/realtime-search', {
+            keyword: keyword,
+            filters: {
+                company: company || undefined,
+                riskLevel: riskLevel || undefined,
+                timeRange: timeRange || 30
+            }
+        });
+        
+        if (!response.data.success) {
+            throw new Error(response.data.error || '搜索失败');
+        }
+        
+        const result = response.data.data;
+        
+        console.log('实时搜索结果:', result);
+        console.log('- 总结果:', result.total_results);
+        console.log('- 风险数:', result.risks.length);
+        console.log('- 是否缓存:', result.cached);
+        
+        return result;
+        
+    } catch (error) {
+        console.error('实时搜索失败:', error);
+        
+        // 如果实时搜索失败，回退到本地搜索
+        console.warn('回退到本地数据库搜索');
+        const localResults = await searchRisks(keyword);
+        
+        // 返回兼容格式
+        return {
+            search_keyword: keyword,
+            search_time: new Date().toISOString(),
+            total_results: localResults.length,
+            risks: localResults,
+            overall_assessment: {
+                total_risks: localResults.length,
+                high_risks: localResults.filter(r => r.risk_level === '高风险').length,
+                medium_risks: localResults.filter(r => r.risk_level === '中风险').length,
+                low_risks: localResults.filter(r => r.risk_level === '低风险').length,
+                risk_score: 50,
+                risk_level: 'medium',
+                summary: '实时搜索失败，已回退到本地数据库搜索'
+            },
+            key_findings: ['已从本地数据库返回结果'],
+            recommendations: ['建议配置GENSPARK_TOKEN以使用实时搜索功能']
+        };
+    }
+}
+
+// 显示实时搜索的AI分析结果
+function displayRealtimeAnalysis(result) {
+    const analysisPanel = document.getElementById('aiAnalysis');
+    const analysisContent = document.getElementById('aiAnalysisResult');
+    
+    if (!analysisPanel || !analysisContent) return;
+    
+    // 构建分析内容HTML
+    let html = '<div class="space-y-4">';
+    
+    // 是否来自缓存
+    if (result.cached) {
+        html += `
+            <div class="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-4">
+                <div class="flex items-center text-blue-700">
+                    <i class="fas fa-clock mr-2"></i>
+                    <span class="text-sm font-medium">此结果来自24小时缓存（节省成本）</span>
+                </div>
+            </div>
+        `;
+    }
+    
+    // 总体评估
+    const assessment = result.overall_assessment;
+    const riskLevelColors = {
+        high: 'text-red-600',
+        medium: 'text-yellow-600',
+        low: 'text-green-600'
+    };
+    const riskLevelText = {
+        high: '高风险',
+        medium: '中风险',
+        low: '低风险'
+    };
+    
+    html += `
+        <div class="bg-gradient-to-r from-gray-50 to-gray-100 rounded-lg p-4 border border-gray-200">
+            <h4 class="font-bold text-gray-900 mb-3 flex items-center">
+                <i class="fas fa-chart-line mr-2 text-blue-600"></i>
+                <span>总体评估</span>
+            </h4>
+            <p class="text-gray-700 mb-3 leading-relaxed">${assessment.summary}</p>
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
+                <div class="bg-white rounded p-2 text-center">
+                    <div class="text-gray-600 text-xs">风险评分</div>
+                    <div class="text-2xl font-bold ${riskLevelColors[assessment.risk_level]}">${assessment.risk_score}</div>
+                    <div class="text-xs text-gray-500">/ 100</div>
+                </div>
+                <div class="bg-white rounded p-2 text-center">
+                    <div class="text-gray-600 text-xs">高风险</div>
+                    <div class="text-2xl font-bold text-red-600">${assessment.high_risks}</div>
+                    <div class="text-xs text-gray-500">条</div>
+                </div>
+                <div class="bg-white rounded p-2 text-center">
+                    <div class="text-gray-600 text-xs">中风险</div>
+                    <div class="text-2xl font-bold text-yellow-600">${assessment.medium_risks}</div>
+                    <div class="text-xs text-gray-500">条</div>
+                </div>
+                <div class="bg-white rounded p-2 text-center">
+                    <div class="text-gray-600 text-xs">低风险</div>
+                    <div class="text-2xl font-bold text-green-600">${assessment.low_risks}</div>
+                    <div class="text-xs text-gray-500">条</div>
+                </div>
+            </div>
+            <div class="mt-3 text-center">
+                <span class="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium ${riskLevelColors[assessment.risk_level]} bg-white border-2 ${riskLevelColors[assessment.risk_level].replace('text-', 'border-')}">
+                    风险等级: ${riskLevelText[assessment.risk_level]}
+                </span>
+            </div>
+        </div>
+    `;
+    
+    // 关键发现
+    if (result.key_findings && result.key_findings.length > 0) {
+        html += `
+            <div class="bg-white rounded-lg p-4 border border-gray-200">
+                <h4 class="font-bold text-gray-900 mb-3 flex items-center">
+                    <i class="fas fa-lightbulb mr-2 text-yellow-500"></i>
+                    <span>关键发现</span>
+                </h4>
+                <ul class="space-y-2">
+                    ${result.key_findings.map((finding, index) => 
+                        `<li class="flex items-start">
+                            <span class="flex-shrink-0 w-6 h-6 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center text-xs font-bold mr-3 mt-0.5">${index + 1}</span>
+                            <span class="text-gray-700 flex-1">${finding}</span>
+                        </li>`
+                    ).join('')}
+                </ul>
+            </div>
+        `;
+    }
+    
+    // 应对建议
+    if (result.recommendations && result.recommendations.length > 0) {
+        html += `
+            <div class="bg-white rounded-lg p-4 border border-gray-200">
+                <h4 class="font-bold text-gray-900 mb-3 flex items-center">
+                    <i class="fas fa-tasks mr-2 text-green-500"></i>
+                    <span>应对建议</span>
+                </h4>
+                <ul class="space-y-2">
+                    ${result.recommendations.map((rec, index) => 
+                        `<li class="flex items-start">
+                            <i class="fas fa-check-circle text-green-500 mr-3 mt-1 flex-shrink-0"></i>
+                            <span class="text-gray-700 flex-1">${rec}</span>
+                        </li>`
+                    ).join('')}
+                </ul>
+            </div>
+        `;
+    }
+    
+    // 搜索信息
+    html += `
+        <div class="text-center text-sm text-gray-500 pt-2 border-t border-gray-200">
+            <i class="fas fa-info-circle mr-1"></i>
+            搜索关键词: <strong>${result.search_keyword}</strong> | 
+            搜索时间: ${new Date(result.search_time).toLocaleString('zh-CN')} | 
+            结果数: <strong>${result.total_results}</strong> 条
+        </div>
+    `;
+    
+    html += '</div>';
+    
+    analysisContent.innerHTML = html;
+    analysisPanel.classList.remove('hidden');
+}
+

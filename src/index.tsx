@@ -538,7 +538,50 @@ app.post('/api/ai-analysis', async (c) => {
   }
 })
 
-// 6. 实时数据获取（轮询方式替代SSE）
+// 6. 实时搜索API（GenSpark AI + Web Search）
+app.post('/api/realtime-search', async (c) => {
+  const { DB } = c.env
+  
+  try {
+    const { keyword, filters } = await c.req.json()
+    
+    if (!keyword || keyword.trim() === '') {
+      return c.json<ApiResponse>({
+        success: false,
+        error: '请输入搜索关键词'
+      }, 400)
+    }
+    
+    console.log(`[API] Realtime search: ${keyword}`, filters)
+    
+    // 导入实时搜索服务
+    const { realtimeSearch } = await import('./realtimeSearchService')
+    
+    // 获取API Key
+    const apiKey = c.env.GENSPARK_TOKEN || c.env.OPENAI_API_KEY
+    
+    // 执行搜索（带缓存和数据库存储）
+    const result = await realtimeSearch(
+      { keyword: keyword.trim(), filters },
+      DB,
+      apiKey
+    )
+    
+    return c.json<ApiResponse>({
+      success: true,
+      data: result
+    })
+    
+  } catch (error: any) {
+    console.error('[API] Realtime search error:', error)
+    return c.json<ApiResponse>({
+      success: false,
+      error: error.message || '搜索失败'
+    }, 500)
+  }
+})
+
+// 7. 实时数据获取（轮询方式替代SSE）
 app.get('/api/realtime', async (c) => {
   const { DB } = c.env
 
