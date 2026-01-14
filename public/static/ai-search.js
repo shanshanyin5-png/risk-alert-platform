@@ -102,15 +102,18 @@ async function searchRisks(keyword) {
             }
         });
         
-        let results = response.data.data || [];
+        // 兼容新API格式：data.list
+        let results = response.data.data?.list || response.data.data || [];
         
         // 关键词过滤（支持标题和风险事项搜索）
-        results = results.filter(risk => {
-            const matchKeyword = risk.title.includes(keyword) || 
-                                 risk.risk_item.includes(keyword) ||
-                                 risk.company_name.includes(keyword);
-            return matchKeyword;
-        });
+        if (keyword) {
+            results = results.filter(risk => {
+                const matchKeyword = risk.title.includes(keyword) || 
+                                     risk.risk_item.includes(keyword) ||
+                                     risk.company_name.includes(keyword);
+                return matchKeyword;
+            });
+        }
         
         // 风险等级过滤
         if (riskLevel) {
