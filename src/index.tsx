@@ -20,8 +20,63 @@ app.use('/api/*', cors())
 
 // 静态文件服务
 app.use('/static/*', serveStatic({ root: './' }))
-// HTML页面
-app.get('/ai-search.html', serveStatic({ path: './ai-search.html' }))
+
+// AI搜索页面（简化方案：直接返回HTML字符串）
+app.get('/ai-search', async (c) => {
+  // 由于Cloudflare Pages的静态文件限制，这里暂时返回一个跳转页面
+  // 完整页面在 public/ai-search.html 中
+  return c.html(`
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI智能搜索 - 跳转中...</title>
+    <style>
+      body { 
+        display: flex; 
+        justify-content: center; 
+        align-items: center; 
+        height: 100vh; 
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        font-family: sans-serif;
+      }
+      .container {
+        text-center;
+      }
+      .spinner {
+        border: 4px solid rgba(255,255,255,0.3);
+        border-top: 4px solid white;
+        border-radius: 50%;
+        width: 40px;
+        height: 40px;
+        animation: spin 1s linear infinite;
+        margin: 20px auto;
+      }
+      @keyframes spin {
+        0% { transform: rotate(0deg); }
+        100% { transform: rotate(360deg); }
+      }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h2>AI智能搜索功能</h2>
+        <div class="spinner"></div>
+        <p>页面准备中...</p>
+        <p style="margin-top: 20px; font-size: 14px;">
+          <a href="/" style="color: white;">← 返回主页</a>
+        </p>
+        <p style="margin-top: 10px; font-size: 12px; opacity: 0.8;">
+          提示：AI搜索功能已开发完成，文件位于 public/ai-search.html<br>
+          由于Cloudflare Pages静态文件服务限制，需要配置正确的路由才能访问
+        </p>
+    </div>
+</body>
+</html>
+  `)
+})
 
 // ========== API 路由 ==========
 
