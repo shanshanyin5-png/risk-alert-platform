@@ -1,6 +1,9 @@
 // Cloudflare D1 Database类型定义
 export interface Bindings {
   DB: D1Database;
+  GENSPARK_TOKEN?: string;
+  OPENAI_API_KEY?: string;
+  OPENAI_BASE_URL?: string;
 }
 
 // 风险信息数据结构

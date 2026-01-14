@@ -309,7 +309,79 @@ app.get('/api/companies', async (c) => {
   }
 })
 
-// 5. 实时数据获取（轮询方式替代SSE）
+// 5. AI智能分析 API
+app.post('/api/ai-analysis', async (c) => {
+  const { DB } = c.env
+  
+  try {
+    const body = await c.req.json()
+    const { keyword, filters } = body
+    
+    // 构建查询条件
+    let query = 'SELECT * FROM risks WHERE 1=1'
+    const params: any[] = []
+    
+    // 关键词搜索
+    if (keyword) {
+      query += ' AND (title LIKE ? OR risk_item LIKE ? OR company_name LIKE ?)'
+      params.push(`%${keyword}%`, `%${keyword}%`, `%${keyword}%`)
+    }
+    
+    // 风险等级筛选
+    if (filters?.riskLevel) {
+      query += ' AND risk_level = ?'
+      params.push(filters.riskLevel)
+    }
+    
+    // 公司筛选
+    if (filters?.company) {
+      query += ' AND company_name = ?'
+      params.push(filters.company)
+    }
+    
+    // 时间范围筛选
+    if (filters?.timeRange) {
+      const days = parseInt(filters.timeRange)
+      query += ' AND DATE(risk_time) >= DATE("now", ?)'
+      params.push(`-${days} days`)
+    }
+    
+    query += ' ORDER BY risk_time DESC LIMIT 100'
+    
+    // 执行查询
+    const result = await DB.prepare(query).bind(...params).all()
+    const results = result.results || []
+    
+    // 调用AI分析服务
+    const apiKey = c.env.GENSPARK_TOKEN || c.env.OPENAI_API_KEY
+    const baseURL = c.env.OPENAI_BASE_URL || 'https://www.genspark.ai/api/llm_proxy/v1'
+    
+    if (!apiKey) {
+      // 如果没有API密钥，使用规则分析
+      return c.json<ApiResponse>({
+        success: true,
+        data: performRuleBasedAnalysis(results, keyword, filters)
+      })
+    }
+    
+    // 调用GenSpark AI进行分析
+    const aiResponse = await callGenSparkAI(apiKey, baseURL, results, keyword, filters)
+    
+    return c.json<ApiResponse>({
+      success: true,
+      data: aiResponse
+    })
+    
+  } catch (error: any) {
+    console.error('AI分析错误:', error)
+    return c.json<ApiResponse>({
+      success: false,
+      error: error.message
+    }, 500)
+  }
+})
+
+// 6. 实时数据获取（轮询方式替代SSE）
 app.get('/api/realtime', async (c) => {
   const { DB } = c.env
 
@@ -1564,5 +1636,255 @@ app.get('/', (c) => {
 </html>
   `)
 })
+
+// ========== AI分析辅助函数 ==========
+
+/**
+ * 调用GenSpark AI进行分析
+ */
+async function callGenSparkAI(
+  apiKey: string, 
+  baseURL: string, 
+  results: any[], 
+  keyword: string, 
+  filters: any
+) {
+  const prompt = buildAnalysisPrompt(results, keyword, filters)
+  
+  try {
+    const response = await fetch(`${baseURL}/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`
+      },
+      body: JSON.stringify({
+        model: 'gpt-4o-mini',
+        messages: [
+          {
+            role: 'system',
+            content: '你是一个专业的风险分析助手，专门分析国网海外电力项目的风险信息。请用中文回答，提供专业、简洁的分析。'
+          },
+          {
+            role: 'user',
+            content: prompt
+          }
+        ],
+        temperature: 0.7,
+        max_tokens: 1500
+      })
+    })
+    
+    if (!response.ok) {
+      console.error('AI API请求失败:', response.status, await response.text())
+      throw new Error(`AI API请求失败: ${response.status}`)
+    }
+    
+    const data = await response.json()
+    const content = data.choices?.[0]?.message?.content || ''
+    
+    // 尝试解析JSON响应
+    return parseAIResponse(content, results)
+    
+  } catch (error: any) {
+    console.error('AI调用失败，使用规则分析:', error)
+    return performRuleBasedAnalysis(results, keyword, filters)
+  }
+}
+
+/**
+ * 构建AI分析提示词
+ */
+function buildAnalysisPrompt(results: any[], keyword: string, filters: any): string {
+  const totalRisks = results.length
+  const highRisks = results.filter(r => r.risk_level === '高风险').length
+  const mediumRisks = results.filter(r => r.risk_level === '中风险').length
+  const lowRisks = results.filter(r => r.risk_level === '低风险').length
+  
+  // 公司统计
+  const companies: {[key: string]: number} = {}
+  results.forEach(r => {
+    companies[r.company_name] = (companies[r.company_name] || 0) + 1
+  })
+  const topCompanies = Object.entries(companies)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 5)
+  
+  // 提取样本风险
+  const samples = results.slice(0, 8).map(r => ({
+    title: r.title,
+    company: r.company_name,
+    level: r.risk_level,
+    item: r.risk_item,
+    time: r.risk_time
+  }))
+  
+  return `
+请分析以下国网海外电力项目的风险搜索结果：
+
+**搜索关键词**: "${keyword || '全部'}"
+${filters?.riskLevel ? `**风险等级筛选**: ${filters.riskLevel}` : ''}
+${filters?.company ? `**公司筛选**: ${filters.company}` : ''}
+${filters?.timeRange ? `**时间范围**: 最近${filters.timeRange}天` : ''}
+
+**统计数据**:
+- 总计: ${totalRisks} 条风险
+- 高风险: ${highRisks} 条 (${totalRisks > 0 ? Math.round(highRisks/totalRisks*100) : 0}%)
+- 中风险: ${mediumRisks} 条 (${totalRisks > 0 ? Math.round(mediumRisks/totalRisks*100) : 0}%)
+- 低风险: ${lowRisks} 条 (${totalRisks > 0 ? Math.round(lowRisks/totalRisks*100) : 0}%)
+
+**涉及公司**:
+${topCompanies.map(([company, count]) => `- ${company}: ${count}条`).join('\n')}
+
+**样本风险事项** (前8条):
+${samples.map((s, i) => `${i+1}. [${s.level}] ${s.company} - ${s.title.substring(0, 60)}...
+   风险事项: ${s.item}
+   时间: ${s.time || '未知'}`).join('\n\n')}
+
+请以JSON格式提供分析结果：
+\`\`\`json
+{
+  "summary": "一段话总结整体风险态势（80-150字）",
+  "keyFindings": [
+    "关键发现1（具体指出主要风险模式或趋势）",
+    "关键发现2（分析公司或地区的风险集中情况）",
+    "关键发现3（识别时间上的风险变化）",
+    "关键发现4（其他重要洞察）"
+  ],
+  "recommendations": [
+    "建议1（针对高风险事项的应对措施）",
+    "建议2（风险监控和预警机制）",
+    "建议3（与相关公司的协调建议）"
+  ],
+  "riskAssessment": {
+    "level": "high/medium/low",
+    "score": 0-100,
+    "reasoning": "风险等级判断依据（说明为什么是这个等级）"
+  }
+}
+\`\`\`
+
+注意：
+1. 分析要具体、专业，避免空泛
+2. 关注高风险事项和趋势变化
+3. 建议要可操作
+`.trim()
+}
+
+/**
+ * 解析AI响应
+ */
+function parseAIResponse(content: string, results: any[]) {
+  try {
+    // 提取JSON内容
+    const jsonMatch = content.match(/```json\s*(\{[\s\S]*?\})\s*```/) || content.match(/(\{[\s\S]*\})/)
+    if (jsonMatch) {
+      const parsed = JSON.parse(jsonMatch[1])
+      
+      // 验证必要字段
+      if (parsed.summary && parsed.keyFindings && parsed.recommendations && parsed.riskAssessment) {
+        return parsed
+      }
+    }
+  } catch (error) {
+    console.error('解析AI响应失败:', error)
+  }
+  
+  // 解析失败，使用规则分析
+  return performRuleBasedAnalysis(results, '', {})
+}
+
+/**
+ * 规则分析（降级方案）
+ */
+function performRuleBasedAnalysis(results: any[], keyword: string, filters: any) {
+  const totalRisks = results.length
+  const highRisks = results.filter(r => r.risk_level === '高风险').length
+  const mediumRisks = results.filter(r => r.risk_level === '中风险').length
+  const lowRisks = results.filter(r => r.risk_level === '低风险').length
+  
+  // 计算风险分数
+  const score = totalRisks > 0 
+    ? Math.round((highRisks * 100 + mediumRisks * 50 + lowRisks * 20) / totalRisks)
+    : 0
+  
+  let level: 'high' | 'medium' | 'low' = 'low'
+  if (score >= 70 || highRisks > totalRisks * 0.3) level = 'high'
+  else if (score >= 40 || highRisks > 0) level = 'medium'
+  
+  // 公司统计
+  const companies: {[key: string]: number} = {}
+  results.forEach(r => {
+    companies[r.company_name] = (companies[r.company_name] || 0) + 1
+  })
+  const topCompanies = Object.entries(companies)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 3)
+  
+  // 风险类型统计
+  const riskTypes = extractRiskTypes(results)
+  
+  return {
+    summary: `${keyword ? `关于"${keyword}"的搜索` : '搜索'}共发现${totalRisks}条风险信息。其中高风险${highRisks}条（${Math.round(highRisks/totalRisks*100 || 0)}%），中风险${mediumRisks}条，低风险${lowRisks}条。${
+      highRisks > totalRisks * 0.3 
+        ? '高风险事项占比较高，需要重点关注和应对。' 
+        : highRisks > 0 
+          ? '存在部分高风险事项，需要及时处理。'
+          : '总体风险可控，建议持续监控。'
+    }${topCompanies.length > 0 ? ` 主要涉及${topCompanies[0][0]}等公司。` : ''}`,
+    
+    keyFindings: [
+      `共发现${totalRisks}条相关风险信息`,
+      `高风险事项${highRisks}条${highRisks > 0 ? '，占比' + Math.round(highRisks/totalRisks*100) + '%' : ''}`,
+      topCompanies.length > 0 
+        ? `风险主要集中在${topCompanies.map(c => `${c[0]}(${c[1]}条)`).join('、')}` 
+        : '风险分布较为分散',
+      riskTypes.length > 0 
+        ? `主要风险类型：${riskTypes.slice(0, 4).join('、')}` 
+        : '风险类型多样'
+    ].filter(Boolean),
+    
+    recommendations: [
+      highRisks > 0 
+        ? `立即评估${highRisks}条高风险事项的影响范围和应对方案` 
+        : '建立风险预警机制，及时发现新风险',
+      topCompanies.length > 0
+        ? `加强与${topCompanies[0][0]}等重点公司的沟通协调`
+        : '保持与各相关公司的常规沟通',
+      '持续监控风险发展态势，定期更新风险评估'
+    ],
+    
+    riskAssessment: {
+      level,
+      score,
+      reasoning: `基于${totalRisks}条风险数据分析，高风险占比${Math.round(highRisks/totalRisks*100 || 0)}%（${highRisks}条），中风险${Math.round(mediumRisks/totalRisks*100 || 0)}%（${mediumRisks}条），综合风险评分${score}分，评估为${level === 'high' ? '高' : level === 'medium' ? '中' : '低'}风险等级。${
+        level === 'high' 
+          ? '建议立即采取应对措施。' 
+          : level === 'medium'
+            ? '需要密切关注并做好准备。'
+            : '当前态势总体可控。'
+      }`
+    }
+  }
+}
+
+/**
+ * 提取风险类型
+ */
+function extractRiskTypes(results: any[]): string[] {
+  const types = new Set<string>()
+  results.forEach(r => {
+    const text = (r.risk_item || '') + (r.title || '')
+    if (text.includes('停电')) types.add('停电')
+    if (text.includes('事故')) types.add('事故')
+    if (text.includes('延期') || text.includes('推迟')) types.add('延期')
+    if (text.includes('财务') || text.includes('资金') || text.includes('债务')) types.add('财务')
+    if (text.includes('法律') || text.includes('诉讼') || text.includes('合规')) types.add('法律')
+    if (text.includes('政策') || text.includes('监管')) types.add('政策')
+    if (text.includes('安全') || text.includes('火灾') || text.includes('爆炸')) types.add('安全')
+    if (text.includes('环境') || text.includes('污染')) types.add('环境')
+  })
+  return Array.from(types)
+}
 
 export default app

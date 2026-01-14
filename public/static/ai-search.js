@@ -295,15 +295,110 @@ async function performAIAnalysis(keyword, results) {
         </div>
     `;
     
-    // 模拟AI分析（实际应该调用后端AI API）
-    setTimeout(() => {
-        const analysis = generateAIAnalysis(keyword, results);
+    try {
+        // 获取筛选条件
+        const filters = {
+            riskLevel: document.getElementById('riskLevel').value,
+            company: document.getElementById('company').value,
+            timeRange: parseInt(document.getElementById('timeRange').value) || null
+        };
+        
+        // 调用后端AI分析API
+        const response = await axios.post('/api/ai-analysis', {
+            keyword: keyword,
+            results: results,
+            filters: filters
+        });
+        
+        if (response.data.success) {
+            const analysis = response.data.data;
+            contentDiv.innerHTML = renderAIAnalysis(analysis);
+        } else {
+            throw new Error(response.data.error || 'AI分析失败');
+        }
+    } catch (error) {
+        console.error('AI分析失败:', error);
+        // 降级到规则分析
+        const analysis = generateFallbackAnalysis(keyword, results);
         contentDiv.innerHTML = analysis;
-    }, 2000);
+    }
 }
 
-// 生成AI分析（基于规则的智能分析）
-function generateAIAnalysis(keyword, results) {
+// 渲染AI分析结果
+function renderAIAnalysis(analysis) {
+    const riskLevelColors = {
+        'high': { bg: 'bg-red-50', border: 'border-red-500', text: 'text-red-800', icon: 'text-red-600' },
+        'medium': { bg: 'bg-yellow-50', border: 'border-yellow-500', text: 'text-yellow-800', icon: 'text-yellow-600' },
+        'low': { bg: 'bg-green-50', border: 'border-green-500', text: 'text-green-800', icon: 'text-green-600' }
+    };
+    
+    const levelColor = riskLevelColors[analysis.riskAssessment.level] || riskLevelColors['low'];
+    
+    return `
+        <div class="space-y-4">
+            <!-- 总体评估 -->
+            <div class="${levelColor.bg} border-l-4 ${levelColor.border} rounded-lg p-4">
+                <div class="flex items-center justify-between mb-2">
+                    <h4 class="font-bold ${levelColor.text} text-lg">
+                        <i class="fas fa-chart-line mr-2"></i>
+                        总体风险评估
+                    </h4>
+                    <span class="px-3 py-1 ${levelColor.bg} ${levelColor.text} rounded-full text-sm font-bold border-2 ${levelColor.border}">
+                        风险评分: ${analysis.riskAssessment.score}/100
+                    </span>
+                </div>
+                <p class="${levelColor.text}">
+                    ${escapeHtml(analysis.summary)}
+                </p>
+                <p class="text-sm ${levelColor.text} mt-2 opacity-80">
+                    <i class="fas fa-info-circle mr-1"></i>
+                    ${escapeHtml(analysis.riskAssessment.reasoning)}
+                </p>
+            </div>
+            
+            <!-- 关键发现 -->
+            <div class="bg-white rounded-lg p-4 border border-gray-200">
+                <h4 class="font-bold text-gray-800 mb-3">
+                    <i class="fas fa-lightbulb text-purple-600 mr-2"></i>
+                    关键发现
+                </h4>
+                <ul class="space-y-2">
+                    ${analysis.keyFindings.map(finding => `
+                        <li class="flex items-start">
+                            <i class="fas fa-check-circle text-purple-600 mr-2 mt-1"></i>
+                            <span class="text-gray-700">${escapeHtml(finding)}</span>
+                        </li>
+                    `).join('')}
+                </ul>
+            </div>
+            
+            <!-- 应对建议 -->
+            <div class="bg-blue-50 rounded-lg p-4 border border-blue-200">
+                <h4 class="font-bold text-blue-800 mb-3">
+                    <i class="fas fa-tasks text-blue-600 mr-2"></i>
+                    应对建议
+                </h4>
+                <ol class="space-y-2 list-decimal list-inside">
+                    ${analysis.recommendations.map(rec => `
+                        <li class="text-blue-900">
+                            <span class="text-blue-700">${escapeHtml(rec)}</span>
+                        </li>
+                    `).join('')}
+                </ol>
+            </div>
+            
+            <!-- AI标识 -->
+            <div class="text-center text-xs text-gray-500 mt-3">
+                <i class="fas fa-robot mr-1"></i>
+                由GenSpark AI提供智能分析 · 
+                ${new Date().toLocaleString('zh-CN')}
+            </div>
+        </div>
+    `;
+}
+
+// 降级分析（当AI API不可用时）
+function generateFallbackAnalysis(keyword, results) {
     if (results.length === 0) {
         return '<p class="text-gray-600">未找到相关风险信息。</p>';
     }
