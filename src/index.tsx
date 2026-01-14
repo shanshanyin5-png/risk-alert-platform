@@ -19,7 +19,9 @@ const MAX_ARTICLES_PER_SOURCE = 50
 app.use('/api/*', cors())
 
 // 静态文件服务
-app.use('/static/*', serveStatic({ root: './public' }))
+app.use('/static/*', serveStatic({ root: './' }))
+// HTML页面
+app.get('/ai-search.html', serveStatic({ path: './ai-search.html' }))
 
 // ========== API 路由 ==========
 
