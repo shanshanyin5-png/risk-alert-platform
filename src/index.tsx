@@ -524,8 +524,9 @@ app.post('/api/crawl/all', async (c) => {
     let failed = 0
     let totalRisks = 0
     
-    // 爬取每个数据源（限制前10个以避免超时）
-    const sourcesToCrawl = (sources.results || []).slice(0, 10)
+    // 爬取所有启用的数据源（移除10个的限制）
+    const sourcesToCrawl = sources.results || []
+    console.log(`将爬取 ${sourcesToCrawl.length} 个数据源`)
     
     for (const source of sourcesToCrawl) {
       try {
