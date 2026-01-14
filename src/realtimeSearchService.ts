@@ -370,7 +370,7 @@ export async function searchWithAI(
   }
   
   const baseURL = process.env.OPENAI_BASE_URL || 'https://www.genspark.ai/api/llm_proxy/v1';
-  const model = process.env.OPENAI_MODEL || 'gpt-4o-mini';
+  const model = process.env.OPENAI_MODEL || 'gpt-5-mini';
   
   console.log(`[Search] Keyword: ${request.keyword}, Model: ${model}`);
   
