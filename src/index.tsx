@@ -311,7 +311,10 @@ app.get('/api/risks', async (c) => {
       SELECT id, company_name, title, risk_item, risk_time, source, 
              source_url, risk_level, 
              substr(risk_reason, 1, 200) as risk_reason_preview,
-             created_at
+             created_at,
+             project_name, project_location, project_type, 
+             project_capacity, project_investment, project_status,
+             project_start_date, project_completion_date
       FROM risks ${whereClause}
       ORDER BY ${sort} ${order}
       LIMIT ? OFFSET ?
@@ -588,7 +591,8 @@ app.get('/api/realtime', async (c) => {
   try {
     // 获取最新10条风险
     const result = await DB.prepare(`
-      SELECT id, company_name, title, risk_level, risk_time, created_at
+      SELECT id, company_name, title, risk_level, risk_time, created_at,
+             project_name, project_location, project_type
       FROM risks 
       ORDER BY id DESC 
       LIMIT 10

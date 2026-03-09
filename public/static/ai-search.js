@@ -223,6 +223,46 @@ function createResultCard(risk) {
                 </div>
             </div>
         </div>
+        ${risk.project_name ? `
+        <div class="bg-blue-50 border-l-4 border-blue-400 p-3 mb-2 rounded">
+            <div class="flex items-center mb-1">
+                <i class="fas fa-project-diagram text-blue-600 mr-2"></i>
+                <strong class="text-blue-900">关联项目：${escapeHtml(risk.project_name)}</strong>
+            </div>
+            <div class="grid grid-cols-2 gap-2 text-sm text-gray-700 ml-6">
+                ${risk.project_location ? `
+                <div>
+                    <i class="fas fa-map-marker-alt text-gray-400 mr-1"></i>
+                    位置：${escapeHtml(risk.project_location)}
+                </div>
+                ` : ''}
+                ${risk.project_type ? `
+                <div>
+                    <i class="fas fa-tag text-gray-400 mr-1"></i>
+                    类型：${escapeHtml(risk.project_type)}
+                </div>
+                ` : ''}
+                ${risk.project_capacity ? `
+                <div>
+                    <i class="fas fa-bolt text-gray-400 mr-1"></i>
+                    容量：${escapeHtml(risk.project_capacity)}
+                </div>
+                ` : ''}
+                ${risk.project_investment ? `
+                <div>
+                    <i class="fas fa-dollar-sign text-gray-400 mr-1"></i>
+                    投资：${escapeHtml(risk.project_investment)}
+                </div>
+                ` : ''}
+                ${risk.project_status ? `
+                <div>
+                    <i class="fas fa-info-circle text-gray-400 mr-1"></i>
+                    状态：${escapeHtml(risk.project_status)}
+                </div>
+                ` : ''}
+            </div>
+        </div>
+        ` : ''}
         <div class="text-gray-700 mb-2">
             <strong class="text-gray-800">风险事项：</strong>
             ${escapeHtml(risk.risk_item)}
